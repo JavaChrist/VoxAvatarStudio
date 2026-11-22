@@ -1,16 +1,21 @@
 @import "tailwindcss";
 
-/* Style vercel : canevas noir, hiérarchie de gris, filets fins. */
+/* Couleurs du logo Pro JavaChrist : chevrons orange, barre graphite, canevas presque noir. */
 @theme {
   --font-sans: var(--font-geist-sans), Arial, sans-serif;
   --font-mono: var(--font-geist-mono), SFMono-Regular, monospace;
-  --color-surface: #0a0a0a;
-  --color-hover: #171717;
+  /* « black » devient le canevas teinté graphite : toutes les classes bg-black / text-black suivent. */
+  --color-black: #0b0b0c;
+  --color-surface: #111113;
+  --color-hover: #1b1b1e;
   --color-ink: #ededed;
-  --color-muted: #a1a1a1;
-  --color-quiet: #666666;
-  --color-line: #262626;
-  --color-line-strong: #333333;
+  --color-muted: #a3a3a8;
+  --color-quiet: #6b6b70;
+  --color-line: #26262a;
+  --color-line-strong: #3a3a3d;
+  --color-accent: #ff7a1a;
+  --color-accent-strong: #e85d04;
+  --color-accent-soft: #ff9a3c;
   --color-ready: #45dec4;
   --color-danger: #f33a4a;
   --color-env: #0070f3;
@@ -18,7 +23,7 @@
 
 html {
   color-scheme: dark;
-  background: #000;
+  background: var(--color-black);
   color: var(--color-ink);
 }
 

@@ -1,5 +1,6 @@
 // Modèle d'un projet vidéo et validation des saisies. Partagé entre le serveur et le navigateur : aucun secret ici.
 import type { Script } from "./script";
+import type { Voice } from "./voice";
 
 export const VIDEO_FORMATS = ["9:16", "4:5", "1:1"] as const;
 export type VideoFormat = (typeof VIDEO_FORMATS)[number];
@@ -56,6 +57,8 @@ export interface Project extends ProjectInput {
   status: ProjectStatus;
   /** Absent tant que Claude n'a pas écrit le script. */
   script: Script | null;
+  /** Absente tant que la voix n'a pas été générée ; peut être périmée si le script a changé depuis. */
+  voice: Voice | null;
   createdAt: string;
   updatedAt: string;
 }

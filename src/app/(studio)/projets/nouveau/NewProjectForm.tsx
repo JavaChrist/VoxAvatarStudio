@@ -213,7 +213,7 @@ export function NewProjectForm() {
                 <input type="checkbox" checked={checked} onChange={() => toggleFormat(format)} className="sr-only" />
                 <span className="flex h-8 w-7 shrink-0 items-center justify-center" aria-hidden>
                   <span
-                    className={`h-6 rounded-sm border ${checked ? "border-ink" : "border-line-strong"}`}
+                    className={`h-6 rounded-sm border ${checked ? "border-accent" : "border-line-strong"}`}
                     style={{ width: FORMAT_PREVIEW[format].width }}
                   />
                 </span>

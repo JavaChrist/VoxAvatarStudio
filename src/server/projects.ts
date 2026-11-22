@@ -2,6 +2,7 @@ import "server-only";
 import { FieldValue, Timestamp, type DocumentSnapshot } from "firebase-admin/firestore";
 import type { Project, ProjectInput } from "@/features/projects/schema";
 import { toScene, totals, type Script, type ScriptEdit } from "@/features/projects/script";
+import type { Voice } from "@/features/projects/voice";
 import { adminDb } from "./firebase-admin";
 import type { SessionUser } from "./session";
 
@@ -24,6 +25,7 @@ function toProject(snapshot: DocumentSnapshot): Project {
     duration: data.duration,
     status: data.status ?? "draft",
     script: data.script ?? null,
+    voice: data.voice ?? null,
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
   };
@@ -59,6 +61,13 @@ export async function getProject(uid: string, id: string): Promise<Project | nul
 export async function saveScript(id: string, script: Script): Promise<Project> {
   const ref = projects().doc(id);
   await ref.update({ script, status: "script_ready", updatedAt: FieldValue.serverTimestamp() });
+  return toProject(await ref.get());
+}
+
+/** Enregistre la voix et passe le projet en « Voix prête ». Le propriétaire doit avoir été vérifié par getProject. */
+export async function saveVoice(id: string, voice: Voice): Promise<Project> {
+  const ref = projects().doc(id);
+  await ref.update({ voice, status: "voice_ready", updatedAt: FieldValue.serverTimestamp() });
   return toProject(await ref.get());
 }
 

@@ -2,6 +2,7 @@ import "server-only";
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 import { requireEnv } from "./env";
 
 function adminApp(): App {
@@ -19,6 +20,12 @@ function adminApp(): App {
 
 export const adminAuth = () => getAuth(adminApp());
 export const adminDb = () => getFirestore(adminApp());
+/** Bucket Storage du projet. Son nom n'est pas un secret (il est aussi dans la config Firebase du navigateur). */
+export function adminBucket() {
+  const name = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim();
+  if (!name) throw new Error("Variable manquante : NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET");
+  return getStorage(adminApp()).bucket(name);
+}
 
 /** Code ou message d'une erreur, sans jamais inclure de clé : utilisable dans les logs serveur. */
 export function errorCode(error: unknown): string {

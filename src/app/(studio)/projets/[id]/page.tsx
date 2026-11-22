@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { ProjectStatusBadge, formatDate } from "@/features/projects/ProjectStatusBadge";
 import { ScriptEditor } from "@/features/projects/ScriptEditor";
+import { VoicePanel } from "@/features/projects/VoicePanel";
 import { DURATION_PRESETS, durationLabel, toneLabel } from "@/features/projects/schema";
 import { getProject } from "@/server/projects";
 import { getSessionUser } from "@/server/session";
@@ -61,6 +62,7 @@ export default async function ProjectPage({ params }: Props) {
       )}
 
       <ScriptEditor projectId={project.id} initialScript={project.script} />
+      <VoicePanel projectId={project.id} script={project.script} initialVoice={project.voice} />
     </div>
   );
 }

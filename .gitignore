@@ -28,3 +28,6 @@ Thumbs.db
 next-env.d.ts
 *.tsbuildinfo
 .vercel
+
+# Généré par next dev (instructions pour agents IA)
+AGENTS.md
