@@ -34,6 +34,8 @@ export function LoginForm() {
       });
       await signOut(auth);
       if (response.status === 403) throw { code: "session/forbidden" };
+      if (response.status === 500) throw { code: "session/server-config" };
+      if (response.status === 401) throw { code: "session/invalid-token" };
       if (!response.ok) throw { code: "session/failed" };
       router.replace("/");
       router.refresh();
