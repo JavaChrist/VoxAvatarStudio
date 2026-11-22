@@ -1,0 +1,34 @@
+{
+  "id": "chris",
+  "name": "Chris",
+  "version": "1.0.0",
+  "style": "stylized 3D cartoon",
+  "source_image": "Personnage/Homme 3D à lunettes et bouc-6.png",
+  "reference_images": {
+    "9:16": "characters/chris/ref/chris-9x16.png",
+    "4:5": "characters/chris/ref/chris-4x5.png",
+    "1:1": "characters/chris/ref/chris-1x1.png"
+  },
+  "cutout": "characters/chris/ref/cutout.png",
+  "background": {
+    "color": "#00FF00",
+    "built_with": "scripts/prepare_chris_reference.py (rembg isnet-general-use, local)"
+  },
+  "voice": {
+    "provider": "elevenlabs",
+    "voice_id_env": "ELEVENLABS_VOICE_ID",
+    "model_id": "eleven_multilingual_v2",
+    "language": "fr"
+  },
+  "avatar": {
+    "provider": "fal.ai",
+    "endpoint": "fal-ai/kling-video/ai-avatar/v2/pro",
+    "usd_per_second": 0.115,
+    "billed_tail_seconds": 1.6,
+    "output_follows_input_ratio": true
+  },
+  "chroma_key": {
+    "ffmpeg_filter": "chromakey=0x00FF00:0.28:0.08,despill=type=green",
+    "tested": "2026-11-22, 9:16, clean edges on hair, beard and glasses"
+  }
+}

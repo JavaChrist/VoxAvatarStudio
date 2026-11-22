@@ -1,0 +1,25 @@
+# Dependencies and builds
+node_modules/
+.next/
+out/
+dist/
+
+# Secrets: never versioned (only .env.example is)
+.env
+.env.*
+!.env.example
+*service-account*.json
+firebase-adminsdk*.json
+
+# Spike outputs (audio, videos, fal URLs)
+spike/out/
+spike/input/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+*.log
+.tmp/
+
+# Claude Code personal settings
+.claude/settings.local.json

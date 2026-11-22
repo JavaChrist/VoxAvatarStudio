@@ -1,0 +1,14 @@
+{
+  "name": "voxavatar-studio",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "spike:avatar": "node --env-file=.env.local spike/avatar-test.mjs"
+  },
+  "dependencies": {
+    "@fal-ai/client": "^1.11.0"
+  }
+}
