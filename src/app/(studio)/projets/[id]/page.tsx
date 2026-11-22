@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { ProjectStatusBadge, formatDate } from "@/features/projects/ProjectStatusBadge";
+import { DeleteProjectButton } from "@/features/projects/DeleteProjectButton";
 import { ScriptEditor } from "@/features/projects/ScriptEditor";
 import { VoicePanel } from "@/features/projects/VoicePanel";
 import { DURATION_PRESETS, durationLabel, toneLabel } from "@/features/projects/schema";
@@ -63,6 +64,7 @@ export default async function ProjectPage({ params }: Props) {
 
       <ScriptEditor projectId={project.id} initialScript={project.script} />
       <VoicePanel projectId={project.id} script={project.script} initialVoice={project.voice} />
+      <DeleteProjectButton projectId={project.id} topic={project.topic} hasScript={!!project.script} hasVoice={!!project.voice} />
     </div>
   );
 }

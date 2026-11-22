@@ -3,7 +3,7 @@ import { FieldValue, Timestamp, type DocumentSnapshot } from "firebase-admin/fir
 import type { Project, ProjectInput } from "@/features/projects/schema";
 import { toScene, totals, type Script, type ScriptEdit } from "@/features/projects/script";
 import type { Voice } from "@/features/projects/voice";
-import { adminDb } from "./firebase-admin";
+import { adminBucket, adminDb } from "./firebase-admin";
 import type { SessionUser } from "./session";
 
 // Accès Firestore aux projets, uniquement côté serveur (firebase-admin). Chaque lecture vérifie le propriétaire.
@@ -69,6 +69,21 @@ export async function saveVoice(id: string, voice: Voice): Promise<Project> {
   const ref = projects().doc(id);
   await ref.update({ voice, status: "voice_ready", updatedAt: FieldValue.serverTimestamp() });
   return toProject(await ref.get());
+}
+
+/**
+ * Supprime définitivement le projet : d'abord ses fichiers dans Storage (voix, alignement…), puis le document.
+ * Renvoie false si le projet n'existe pas ou n'appartient pas à l'utilisateur.
+ */
+export async function deleteProject(uid: string, id: string): Promise<boolean> {
+  if (!isValidId(id)) return false;
+  const ref = projects().doc(id);
+  const snapshot = await ref.get();
+  if (!snapshot.exists || snapshot.get("ownerUid") !== uid) return false;
+  // Fichiers d'abord : si la suite échoue, le projet reste visible et la suppression peut être relancée.
+  await adminBucket().deleteFiles({ prefix: `projects/${id}/` });
+  await adminDb().recursiveDelete(ref);
+  return true;
 }
 
 /** Applique une modification manuelle au script existant ; mots et durées sont recalculés ici. */
