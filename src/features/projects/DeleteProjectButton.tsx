@@ -9,6 +9,7 @@ import { useModal } from "@/ui/modal/ModalProvider";
 /** Messages affichés pour chaque code d'erreur renvoyé par l'API. */
 const DELETE_ERRORS: Record<string, string> = {
   in_progress: "Une génération (script ou voix) est en cours sur ce projet. Attends qu'elle se termine, puis réessaie.",
+  video_in_progress: "Une vidéo est en cours de génération chez fal. Attends qu'elle soit terminée, puis réessaie.",
   not_found: "Ce projet n'existe plus.",
 };
 

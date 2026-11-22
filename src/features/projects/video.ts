@@ -66,3 +66,7 @@ export const isAvatarStale = (video: AvatarVideo, voice: Voice | null) => !voice
 /** Chemin privé du MP4 d'un format : `9:16` devient `avatar-9x16.mp4`. */
 export const avatarStoragePath = (projectId: string, format: VideoFormat) =>
   `projects/${projectId}/avatar-${format.replace(":", "x")}.mp4`;
+
+/** Vrai si une vidéo est en cours chez fal (hors travail bloqué) : la voix et le projet ne doivent pas changer pendant ce temps. */
+export const hasActiveAvatar = (avatars: AvatarVideos, now = Date.now()) =>
+  Object.values(avatars).some((video) => isAvatarPending(video) && !isAvatarStalled(video, now));

@@ -13,6 +13,7 @@ import { useModal } from "@/ui/modal/ModalProvider";
 const VOICE_ERRORS: Record<string, string> = {
   not_configured: "La clé ElevenLabs ou l'identifiant de voix n'est pas configuré sur le serveur.",
   in_progress: "Une génération est déjà en cours pour ce projet (voix ou script). Patiente quelques secondes.",
+  video_in_progress: "Une vidéo utilise cette voix chez fal. Attends qu'elle soit terminée avant de régénérer la voix.",
   script_missing: "Ce projet n'a pas encore de script. Génère-le d'abord.",
   text_too_long: "Le script est trop long pour la synthèse vocale. Raccourcis-le.",
   provider_busy: "ElevenLabs est saturé pour le moment. Réessaie dans une minute.",
