@@ -22,7 +22,12 @@ export const adminDb = () => getFirestore(adminApp());
 
 /** Code ou message d'une erreur, sans jamais inclure de clé : utilisable dans les logs serveur. */
 export function errorCode(error: unknown): string {
-  if (typeof error === "object" && error && "code" in error) return String(error.code);
-  const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/-----BEGIN[\s\S]*?-----END[^-]*-----/g, "[clé masquée]").slice(0, 200);
+  const message = (error instanceof Error ? error.message : String(error))
+    .replace(/-----BEGIN[\s\S]*?-----END[^-]*-----/g, "[clé masquée]")
+    .slice(0, 300);
+  if (typeof error === "object" && error && "code" in error) {
+    // Les erreurs gRPC de Firestore n'ont qu'un code numérique ; leur message commence par ce code et dit ce qui bloque.
+    return typeof error.code === "number" ? message : String(error.code);
+  }
+  return message;
 }

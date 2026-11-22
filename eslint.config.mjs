@@ -25,7 +25,8 @@ export default defineConfig([
     rules: {
       "no-restricted-imports": [
         "error",
-        { patterns: ["firebase-admin", "firebase-admin/*", "@anthropic-ai/sdk", "@fal-ai/client"] },
+        // Regex ancrées : un motif simple bloquerait aussi nos modules @/server/firebase-admin.
+        { patterns: [{ regex: "^(firebase-admin|@anthropic-ai/sdk|@fal-ai/client)(/.*)?$", message: "SDK serveur : passer par src/server." }] },
       ],
     },
   },

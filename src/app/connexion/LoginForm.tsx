@@ -7,10 +7,8 @@ import { sendPasswordResetEmail, signInWithEmailAndPassword, signOut } from "fir
 import { authErrorContent } from "@/features/auth/auth-errors";
 import { clientAuth } from "@/services/firebase-client";
 import { buttonPrimary } from "@/ui/buttons";
+import { inputClass as INPUT } from "@/ui/fields";
 import { useModal } from "@/ui/modal/ModalProvider";
-
-const INPUT =
-  "h-10 w-full rounded-lg border border-line bg-black px-3 text-sm text-ink placeholder:text-quiet transition-colors duration-150 hover:border-line-strong focus:border-ink focus:outline-none";
 
 export function LoginForm() {
   const router = useRouter();

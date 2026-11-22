@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { allowedEmails } from "./env";
 import { adminAuth } from "./firebase-admin";
@@ -37,8 +38,11 @@ export async function clearSession(): Promise<void> {
   (await cookies()).delete(SESSION_COOKIE);
 }
 
-/** Utilisateur connecté, ou null. Vérifie la signature, la révocation et la liste blanche. */
-export async function getSessionUser(): Promise<SessionUser | null> {
+/**
+ * Utilisateur connecté, ou null. Vérifie la signature, la révocation et la liste blanche.
+ * Mis en cache pour la durée d'une requête : le layout et la page ne vérifient qu'une fois.
+ */
+export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const value = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!value) return null;
   try {
@@ -49,4 +53,4 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   } catch {
     return null;
   }
-}
+});
