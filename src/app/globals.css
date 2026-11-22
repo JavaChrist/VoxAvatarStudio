@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+/* Style vercel : canevas noir, hiérarchie de gris, filets fins. */
+@theme {
+  --font-sans: var(--font-geist-sans), Arial, sans-serif;
+  --font-mono: var(--font-geist-mono), SFMono-Regular, monospace;
+  --color-surface: #0a0a0a;
+  --color-hover: #171717;
+  --color-ink: #ededed;
+  --color-muted: #a1a1a1;
+  --color-quiet: #666666;
+  --color-line: #262626;
+  --color-line-strong: #333333;
+  --color-ready: #45dec4;
+  --color-danger: #f33a4a;
+  --color-env: #0070f3;
+}
+
+html {
+  color-scheme: dark;
+  background: #000;
+  color: var(--color-ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* La page ne défile plus derrière une modale. */
+html:has(dialog[open]) {
+  overflow: hidden;
+}
+
+.modal::backdrop {
+  background: rgb(0 0 0 / 0.7);
+}
+
+.modal[open] {
+  animation: modal-in 150ms ease-out;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal[open] {
+    animation: none;
+  }
+}
