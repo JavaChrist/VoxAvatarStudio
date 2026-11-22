@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "check:secrets": "node scripts/check-secrets.mjs",
     "check": "npm run lint && npm run typecheck && npm run check:secrets",
+    "upload:character": "node --env-file=.env.local scripts/upload-character-refs.mjs",
     "spike:avatar": "node --env-file=.env.local spike/avatar-test.mjs"
   },
   "dependencies": {

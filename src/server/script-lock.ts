@@ -29,3 +29,8 @@ export const withScriptLock = scriptLock.run;
 const voiceLock = createProjectLock();
 export const isVoiceBusy = voiceLock.isBusy;
 export const withVoiceLock = voiceLock.run;
+
+/** Vidéo en cours de lancement ou de récupération chez fal : un seul appel à la fois par projet sur cette instance. */
+const videoLock = createProjectLock();
+export const isVideoBusy = videoLock.isBusy;
+export const withVideoLock = videoLock.run;

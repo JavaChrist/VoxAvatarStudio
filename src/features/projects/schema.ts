@@ -1,5 +1,6 @@
 // Modèle d'un projet vidéo et validation des saisies. Partagé entre le serveur et le navigateur : aucun secret ici.
 import type { Script } from "./script";
+import type { AvatarVideos } from "./video";
 import type { Voice } from "./voice";
 
 export const VIDEO_FORMATS = ["9:16", "4:5", "1:1"] as const;
@@ -59,6 +60,8 @@ export interface Project extends ProjectInput {
   script: Script | null;
   /** Absente tant que la voix n'a pas été générée ; peut être périmée si le script a changé depuis. */
   voice: Voice | null;
+  /** Vidéos de Chris sur fond vert, une par format lancé ; vide au départ. */
+  avatars: AvatarVideos;
   createdAt: string;
   updatedAt: string;
 }

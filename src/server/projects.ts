@@ -1,7 +1,8 @@
 import "server-only";
-import { FieldValue, Timestamp, type DocumentSnapshot } from "firebase-admin/firestore";
+import { FieldPath, FieldValue, Timestamp, type DocumentSnapshot } from "firebase-admin/firestore";
 import type { Project, ProjectInput } from "@/features/projects/schema";
 import { toScene, totals, type Script, type ScriptEdit } from "@/features/projects/script";
+import type { AvatarVideo } from "@/features/projects/video";
 import type { Voice } from "@/features/projects/voice";
 import { adminBucket, adminDb } from "./firebase-admin";
 import type { SessionUser } from "./session";
@@ -26,6 +27,7 @@ function toProject(snapshot: DocumentSnapshot): Project {
     status: data.status ?? "draft",
     script: data.script ?? null,
     voice: data.voice ?? null,
+    avatars: data.avatars ?? {},
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
   };
@@ -68,6 +70,18 @@ export async function saveScript(id: string, script: Script): Promise<Project> {
 export async function saveVoice(id: string, voice: Voice): Promise<Project> {
   const ref = projects().doc(id);
   await ref.update({ voice, status: "voice_ready", updatedAt: FieldValue.serverTimestamp() });
+  return toProject(await ref.get());
+}
+
+/**
+ * Enregistre l'état de la vidéo d'un format, sans toucher aux autres formats. Le projet passe en « Vidéo prête »
+ * dès qu'une vidéo est terminée. Le propriétaire doit avoir été vérifié par getProject.
+ */
+export async function saveAvatar(id: string, video: AvatarVideo): Promise<Project> {
+  const ref = projects().doc(id);
+  // FieldPath : le format contient « : », qu'on ne met pas dans un chemin pointé.
+  const extra: unknown[] = video.state === "done" ? ["status", "video_ready"] : [];
+  await ref.update(new FieldPath("avatars", video.format), video, "updatedAt", FieldValue.serverTimestamp(), ...extra);
   return toProject(await ref.get());
 }
 
