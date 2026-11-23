@@ -8,7 +8,8 @@ import {
 } from "@/features/projects/render";
 import type { Project, VideoFormat } from "@/features/projects/schema";
 import { applyOverride, isEmptyOverride } from "@/features/projects/signature-override";
-import { isVoiceStale } from "@/features/projects/voice";
+import { INSERT_EXTENSIONS } from "@/features/projects/inserts";
+import { isVoiceStale, type Voice } from "@/features/projects/voice";
 import type { Background } from "@/features/backgrounds/schema";
 import { MUSIC_EXTENSIONS, type Music } from "@/features/music/schema";
 import type { Signature } from "@/features/signatures/schema";
@@ -21,7 +22,7 @@ import { signedReadUrl } from "./video";
 // docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run et #list-workflow-runs-for-a-workflow
 //
 // Le dépôt est public : seul l'identifiant aléatoire du rendu part vers GitHub. Le détail du travail
-// (projet, format, titre, durée, signature de fin, fond, musique) est écrit dans le fichier privé render-jobs/{renderId}.json du bucket.
+// (projet, format, titre, durée, signature de fin, fond, musique, images insérées) est écrit dans le fichier privé render-jobs/{renderId}.json du bucket.
 
 const REPOSITORY = "JavaChrist/VoxAvatarStudio";
 const WORKFLOW_FILE = "render.yml";
@@ -108,6 +109,30 @@ async function snapshotMusic(renderId: string, { music, volume }: RenderMusic): 
   return { path, type: music.track.contentType, volume };
 }
 
+/** Image insérée copiée pour un rendu, avec le minutage de sa scène dans la voix (secondes). */
+type RenderInsert = { scene: number; path: string; type: string; start: number; end: number };
+
+/**
+ * Copie les images des scènes pour ce rendu : elles peuvent être remplacées pendant que le workflow tourne.
+ * Le minutage vient de la voix (déjà vérifiée à jour) ; les images posées sur une scène disparue sont ignorées.
+ */
+async function snapshotInserts(renderId: string, project: Project, voice: Voice): Promise<RenderInsert[]> {
+  const sceneCount = Math.min(project.script?.scenes.length ?? 0, voice.scenes.length);
+  const entries = Object.entries(project.inserts)
+    .map(([key, insert]) => ({ scene: Number(key), insert }))
+    .filter(({ scene }) => Number.isInteger(scene) && scene >= 0 && scene < sceneCount)
+    .sort((a, b) => a.scene - b.scene);
+  return Promise.all(
+    entries.map(async ({ scene, insert }) => {
+      const path = `render-jobs/${renderId}.insert-${scene}.${INSERT_EXTENSIONS[insert.contentType]}`;
+      await adminBucket().file(insert.storagePath).copy(adminBucket().file(path));
+      // L'index est borné par sceneCount, donc le minutage existe.
+      const { start, end } = voice.scenes[scene]!;
+      return { scene, path, type: insert.contentType, start, end };
+    }),
+  );
+}
+
 const resultPath = (renderId: string) => `render-jobs/${renderId}.result.json`;
 
 function githubHeaders(): HeadersInit {
@@ -177,6 +202,7 @@ export async function startRender(
       signature: mounted ? await snapshotSignature(renderId, mounted) : null,
       background: background ? await snapshotBackground(renderId, background) : null,
       music: music ? await snapshotMusic(renderId, music) : null,
+      inserts: await snapshotInserts(renderId, project, voice),
     };
     await adminBucket()
       .file(jobPath(renderId))

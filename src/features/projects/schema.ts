@@ -1,4 +1,5 @@
 // Modèle d'un projet vidéo et validation des saisies. Partagé entre le serveur et le navigateur : aucun secret ici.
+import type { ProjectInserts } from "./inserts";
 import type { ProjectRenders } from "./render";
 import type { Script } from "./script";
 import type { SignatureOverride } from "./signature-override";
@@ -68,6 +69,8 @@ export interface Project extends ProjectInput {
   renders: ProjectRenders;
   /** Accroche, QR code et logo propres à cette vidéo, posés sur la signature choisie ; null : aucun réglage. */
   signatureOverride: SignatureOverride | null;
+  /** Images insérées, une au plus par scène du script ; vide au départ. */
+  inserts: ProjectInserts;
   createdAt: string;
   updatedAt: string;
 }

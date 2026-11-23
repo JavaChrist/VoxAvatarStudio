@@ -33,6 +33,7 @@ function toProject(snapshot: DocumentSnapshot): Project {
     renders: data.renders ?? {},
     // Champs écrits un à un : on complète ceux qui manquent.
     signatureOverride: data.signatureOverride ? { ...EMPTY_OVERRIDE, ...data.signatureOverride } : null,
+    inserts: data.inserts ?? {},
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
   };

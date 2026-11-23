@@ -7,6 +7,8 @@ import { DeleteProjectButton } from "@/features/projects/DeleteProjectButton";
 import { ScriptEditor } from "@/features/projects/ScriptEditor";
 import { RenderPanel, type BackgroundChoice, type MusicChoice, type SignatureChoice } from "@/features/projects/RenderPanel";
 import { VideoPanel } from "@/features/projects/VideoPanel";
+import { InsertsPanel } from "@/features/projects/InsertsPanel";
+import type { InsertView } from "@/features/projects/inserts";
 import { VoicePanel } from "@/features/projects/VoicePanel";
 import { DURATION_PRESETS, durationLabel, toneLabel } from "@/features/projects/schema";
 import { errorCode } from "@/server/firebase-admin";
@@ -18,6 +20,7 @@ import { listSignatures, toView } from "@/server/signatures";
 import { listBackgrounds, toBackgroundView } from "@/server/backgrounds";
 import { listMusic, toMusicView } from "@/server/music";
 import { toOverrideView } from "@/server/signature-override";
+import { toInsertViews } from "@/server/inserts";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -73,6 +76,16 @@ async function loadOverride(project: Project): Promise<SignatureOverrideView> {
   }
 }
 
+/** Images insérées du projet, avec leurs liens d'aperçu. Null si la lecture échoue. */
+async function loadInserts(project: Project): Promise<InsertView[] | null> {
+  try {
+    return await toInsertViews(project.inserts);
+  } catch (error) {
+    console.error("[project] inserts view failed", errorCode(error));
+    return null;
+  }
+}
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const project = await loadProject((await params).id);
   return { title: project?.topic ?? "Projet introuvable" };
@@ -81,11 +94,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ProjectPage({ params }: Props) {
   const project = await loadProject((await params).id);
   if (!project) notFound();
-  const [signatures, backgrounds, music, initialOverride] = await Promise.all([
+  const [signatures, backgrounds, music, initialOverride, inserts] = await Promise.all([
     loadSignatureChoices(),
     loadBackgroundChoices(),
     loadMusicChoices(),
     loadOverride(project),
+    loadInserts(project),
   ]);
   const preset = DURATION_PRESETS.find((p) => p.id === project.duration);
 
@@ -126,6 +140,7 @@ export default async function ProjectPage({ params }: Props) {
       <ScriptEditor projectId={project.id} initialScript={project.script} />
       <VoicePanel projectId={project.id} script={project.script} initialVoice={project.voice} />
       <VideoPanel projectId={project.id} formats={project.formats} script={project.script} voice={project.voice} initialAvatars={project.avatars} />
+      <InsertsPanel projectId={project.id} script={project.script} voice={project.voice} initialInserts={inserts} />
       <RenderPanel projectId={project.id} formats={project.formats} voice={project.voice} avatars={project.avatars} initialRenders={project.renders} signatures={signatures} backgrounds={backgrounds} music={music} initialOverride={initialOverride} />
       <DeleteProjectButton projectId={project.id} topic={project.topic} hasScript={!!project.script} hasVoice={!!project.voice} />
     </div>

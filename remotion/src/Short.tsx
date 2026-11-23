@@ -1,10 +1,12 @@
 // Montage d'une vidéo courte : fond, Chris détouré, voix, titre d'ouverture, sous-titres mot à mot
 // et, si une signature est choisie, carte de fin de SIGNATURE_SECONDS après la voix. Musique de fond en option.
+// Images insérées en option : une carte flottante en haut pendant toute sa scène ; Chris rétrécit vers le bas pour lui laisser la place.
 import { createTikTokStyleCaptions, type Caption, type TikTokPage } from "@remotion/captions";
 import { Audio, Video } from "@remotion/media";
 import { useMemo } from "react";
 import {
   AbsoluteFill,
+  Easing,
   Img,
   Sequence,
   interpolate,
@@ -22,9 +24,11 @@ export const FPS = 30;
 
 /** Mêmes formats que l'app ; la vidéo de Chris a déjà le bon ratio (fal suit l'image de référence). */
 export const FORMATS = {
-  "9:16": { width: 1080, height: 1920, avatarHeight: 0.86, captionTop: 0.64, titleSize: 68, captionSize: 76 },
-  "4:5": { width: 1080, height: 1350, avatarHeight: 0.84, captionTop: 0.66, titleSize: 58, captionSize: 64 },
-  "1:1": { width: 1080, height: 1080, avatarHeight: 0.82, captionTop: 0.7, titleSize: 52, captionSize: 58 },
+  // insertTop et insertHeight : zone de la carte d'image, en fraction de la hauteur. Elle s'arrête au-dessus de la tête
+  // de Chris une fois rétréci (sommet à 1 - avatarHeight × AVATAR_INSERT_SCALE), pour que son visage reste visible.
+  "9:16": { width: 1080, height: 1920, avatarHeight: 0.86, captionTop: 0.64, titleSize: 68, captionSize: 76, insertTop: 0.06, insertHeight: 0.38 },
+  "4:5": { width: 1080, height: 1350, avatarHeight: 0.84, captionTop: 0.66, titleSize: 58, captionSize: 64, insertTop: 0.05, insertHeight: 0.4 },
+  "1:1": { width: 1080, height: 1080, avatarHeight: 0.82, captionTop: 0.7, titleSize: 52, captionSize: 58, insertTop: 0.05, insertHeight: 0.41 },
 } as const;
 export type Format = keyof typeof FORMATS;
 
@@ -38,6 +42,58 @@ const MUSIC_FADE_OUT_FRAMES = Math.round(1.5 * FPS);
 const MUSIC_RISE_FRAMES = Math.round(0.6 * FPS);
 /** Sur la signature, la musique monte à trois fois son niveau sous la voix, sans dépasser le volume d'origine. */
 const MUSIC_END_CARD_BOOST = 3;
+
+/** Carte d'image : largeur maximale, entrée et sortie, zoom lent sur toute la scène. */
+const INSERT_WIDTH = 0.8;
+const INSERT_ANIM_FRAMES = Math.round(0.3 * FPS);
+const INSERT_ZOOM = 0.03;
+/** En dessous, la carte n'aurait pas le temps d'être lue : elle n'est pas montée. */
+const INSERT_MIN_FRAMES = Math.round(0.8 * FPS);
+/** Taille de Chris pendant une carte, ancré en bas, et durée du passage d'une taille à l'autre. */
+const AVATAR_INSERT_SCALE = 0.62;
+const AVATAR_RESIZE_FRAMES = Math.round(0.45 * FPS);
+
+type Window = { from: number; until: number };
+
+/**
+ * Plages où Chris est réduit. Deux cartes trop proches pour que Chris ait le temps de regrandir
+ * sont fusionnées : il reste petit entre les deux au lieu de faire un aller-retour.
+ */
+function shrinkWindows(cards: Window[]): Window[] {
+  const merged: Window[] = [];
+  for (const card of [...cards].sort((a, b) => a.from - b.from)) {
+    const last = merged.at(-1);
+    if (last && card.from - AVATAR_RESIZE_FRAMES <= last.until + AVATAR_RESIZE_FRAMES) last.until = Math.max(last.until, card.until);
+    else merged.push({ ...card });
+  }
+  return merged;
+}
+
+/** Chris rétrécit juste avant l'entrée de la carte et regrandit juste après sa sortie. */
+function avatarScale(frame: number, windows: Window[]): number {
+  let scale = 1;
+  for (const { from, until } of windows) {
+    const value = interpolate(
+      frame,
+      [from - AVATAR_RESIZE_FRAMES, from, until, until + AVATAR_RESIZE_FRAMES],
+      [1, AVATAR_INSERT_SCALE, AVATAR_INSERT_SCALE, 1],
+      { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.inOut(Easing.cubic) },
+    );
+    scale = Math.min(scale, value);
+  }
+  return scale;
+}
+
+function Avatar({ src, height, windows }: { src: string; height: number; windows: Window[] }) {
+  const frame = useCurrentFrame();
+  return (
+    <AbsoluteFill
+      style={{ top: "auto", height: `${height * 100}%`, transform: `scale(${avatarScale(frame, windows)})`, transformOrigin: "50% 100%" }}
+    >
+      <Video src={src} muted objectFit="contain" style={{ width: "100%", height: "100%" }} />
+    </AbsoluteFill>
+  );
+}
 
 /** Mots regroupés sur une même page de sous-titres. */
 const CAPTION_PAGE_MS = 1200;
@@ -56,11 +112,15 @@ export type ShortProps = {
   background?: string | null;
   /** Musique de fond jouée en boucle ; volume sous la voix entre 0 et 1. Absente ou null : pas de musique. */
   music?: { src: string; volume: number } | null;
+  /** Images des scènes, avec le minutage de la scène dans la voix (secondes). Dimensions remplies par calculateMetadata. */
+  inserts?: ShortInsert[];
   /** Carte de fin ; absente ou null : la vidéo s'arrête avec la voix. */
   signature?: EndCardSignature | null;
   /** Rempli par calculateMetadata. */
   captions?: Caption[];
 };
+
+export type ShortInsert = { src: string; start: number; end: number; width?: number; height?: number };
 
 const resolve = (path: string) => (/^https?:\/\//.test(path) ? path : staticFile(path));
 
@@ -72,14 +132,25 @@ export const calculateShortMetadata: CalculateMetadataFunction<ShortProps> = asy
   if (!response.ok) throw new Error(`Alignement introuvable (${response.status})`);
   const alignment = (await response.json()) as Alignment;
   const { width, height } = FORMATS[props.format];
+  // Taille réelle de chaque image : la carte épouse ses proportions, coins arrondis compris.
+  const inserts = await Promise.all((props.inserts ?? []).map(async (insert) => ({ ...insert, ...(await imageSize(resolve(insert.src))) })));
   return {
     width,
     height,
     fps: FPS,
     durationInFrames: voiceFrames(props.durationSeconds) + (props.signature ? SIGNATURE_SECONDS * FPS : 0),
-    props: { ...props, captions: alignmentToCaptions(alignment) },
+    props: { ...props, inserts, captions: alignmentToCaptions(alignment) },
   };
 };
+
+function imageSize(src: string): Promise<{ width: number; height: number }> {
+  return new Promise((done, fail) => {
+    const image = new Image();
+    image.onload = () => done({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = () => fail(new Error("Image insérée illisible"));
+    image.src = src;
+  });
+}
 
 function Background({ image }: { image: string | null }) {
   if (image) {
@@ -110,6 +181,40 @@ function musicVolume(frame: number, base: number, voiceEnd: number, total: numbe
   const fadeIn = interpolate(frame, [0, MUSIC_FADE_IN_FRAMES], [0, 1], clamp);
   const fadeOut = interpolate(frame, [total - MUSIC_FADE_OUT_FRAMES, total], [1, 0], clamp);
   return level * Math.min(fadeIn, fadeOut);
+}
+
+/**
+ * Carte flottante d'une image de scène, centrée dans la zone au-dessus des sous-titres.
+ * Entrée : fondu, léger agrandissement et montée ; sortie inverse ; zoom lent de l'image pendant la scène.
+ */
+function InsertCard({ src, width, height, box }: { src: string; width: number; height: number; box: { top: number; width: number; height: number } }) {
+  const frame = useCurrentFrame();
+  const { durationInFrames } = useVideoConfig();
+  const anim = Math.max(1, Math.min(INSERT_ANIM_FRAMES, Math.floor(durationInFrames / 3)));
+  const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
+  const enter = interpolate(frame, [0, anim], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) });
+  const exit = interpolate(frame, [durationInFrames - anim, durationInFrames], [1, 0], { ...clamp, easing: Easing.in(Easing.cubic) });
+  const shown = Math.min(enter, exit);
+  const zoom = interpolate(frame, [0, durationInFrames], [1, 1 + INSERT_ZOOM], clamp);
+  const scale = Math.min(box.width / width, box.height / height);
+  return (
+    <AbsoluteFill style={{ top: box.top, height: box.height, bottom: "auto", alignItems: "center", justifyContent: "center" }}>
+      <div
+        style={{
+          width: Math.round(width * scale),
+          height: Math.round(height * scale),
+          borderRadius: 28,
+          overflow: "hidden",
+          opacity: shown,
+          transform: `translateY(${(1 - shown) * 28}px) scale(${interpolate(shown, [0, 1], [0.92, 1])})`,
+          boxShadow: "0 24px 64px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.08)",
+          backgroundColor: COLORS.black,
+        }}
+      >
+        <Img src={src} style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(${zoom})` }} />
+      </div>
+    </AbsoluteFill>
+  );
 }
 
 function Title({ text, size }: { text: string; size: number }) {
@@ -183,6 +288,7 @@ export function Short({
   durationSeconds,
   background = null,
   music = null,
+  inserts = [],
   signature,
   captions = [],
 }: ShortProps) {
@@ -193,14 +299,25 @@ export function Short({
     () => createTikTokStyleCaptions({ captions, combineTokensWithinMilliseconds: CAPTION_PAGE_MS }).pages,
     [captions],
   );
+  // Cartes montées : celles qui ont une taille connue et assez de temps à l'écran.
+  const cards = inserts.flatMap((insert) => {
+    if (!insert.width || !insert.height) return [];
+    // La carte attend la fin du titre d'ouverture, qui occupe le haut de l'image.
+    const from = Math.max(Math.round(insert.start * fps), TITLE_SECONDS * fps);
+    const until = Math.min(voiceEnd, Math.round(insert.end * fps));
+    return until - from < INSERT_MIN_FRAMES ? [] : [{ src: insert.src, width: insert.width, height: insert.height, from, until }];
+  });
+  const box = {
+    top: Math.round(layout.insertTop * layout.height),
+    width: Math.round(INSERT_WIDTH * layout.width),
+    height: Math.round(layout.insertHeight * layout.height),
+  };
 
   return (
     <AbsoluteFill style={{ backgroundColor: COLORS.black }}>
       <Background image={background} />
       <Sequence durationInFrames={voiceEnd} name="Chris">
-        <AbsoluteFill style={{ top: "auto", height: `${layout.avatarHeight * 100}%` }}>
-          <Video src={resolve(avatar)} muted objectFit="contain" style={{ width: "100%", height: "100%" }} />
-        </AbsoluteFill>
+        <Avatar src={resolve(avatar)} height={layout.avatarHeight} windows={shrinkWindows(cards)} />
       </Sequence>
       <Sequence durationInFrames={voiceEnd} name="Voix">
         <Audio src={resolve(audio)} />
@@ -215,6 +332,11 @@ export function Short({
           name="Musique"
         />
       )}
+      {cards.map((card) => (
+        <Sequence key={card.src} from={card.from} durationInFrames={card.until - card.from} name="Image">
+          <InsertCard src={resolve(card.src)} width={card.width} height={card.height} box={box} />
+        </Sequence>
+      ))}
       <Sequence durationInFrames={TITLE_SECONDS * fps} name="Titre">
         <Title text={title} size={layout.titleSize} />
       </Sequence>
