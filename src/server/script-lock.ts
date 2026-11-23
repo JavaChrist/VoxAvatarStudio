@@ -34,3 +34,8 @@ export const withVoiceLock = voiceLock.run;
 const videoLock = createProjectLock();
 export const isVideoBusy = videoLock.isBusy;
 export const withVideoLock = videoLock.run;
+
+/** Rendu final en cours de lancement ou de suivi sur GitHub Actions. */
+const renderLock = createProjectLock();
+export const isRenderBusy = renderLock.isBusy;
+export const withRenderLock = renderLock.run;

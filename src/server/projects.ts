@@ -2,6 +2,7 @@ import "server-only";
 import { FieldPath, FieldValue, Timestamp, type DocumentSnapshot } from "firebase-admin/firestore";
 import type { Project, ProjectInput } from "@/features/projects/schema";
 import { toScene, totals, type Script, type ScriptEdit } from "@/features/projects/script";
+import { isValidRenderId, type ProjectRender } from "@/features/projects/render";
 import type { AvatarVideo } from "@/features/projects/video";
 import type { Voice } from "@/features/projects/voice";
 import { adminBucket, adminDb } from "./firebase-admin";
@@ -28,6 +29,7 @@ function toProject(snapshot: DocumentSnapshot): Project {
     script: data.script ?? null,
     voice: data.voice ?? null,
     avatars: data.avatars ?? {},
+    renders: data.renders ?? {},
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
   };
@@ -86,6 +88,17 @@ export async function saveAvatar(id: string, video: AvatarVideo): Promise<Projec
 }
 
 /**
+ * Enregistre l'état du rendu final d'un format, sans toucher aux autres formats. Le projet passe en « Rendu terminé »
+ * dès qu'un rendu est terminé. Le propriétaire du projet doit avoir été vérifié par getProject.
+ */
+export async function saveRender(id: string, render: ProjectRender): Promise<Project> {
+  const ref = projects().doc(id);
+  const extra: unknown[] = render.state === "done" ? ["status", "rendered"] : [];
+  await ref.update(new FieldPath("renders", render.format), render, "updatedAt", FieldValue.serverTimestamp(), ...extra);
+  return toProject(await ref.get());
+}
+
+/**
  * Supprime définitivement le projet : d'abord ses fichiers dans Storage (voix, alignement…), puis le document.
  * Renvoie false si le projet n'existe pas ou n'appartient pas à l'utilisateur.
  */
@@ -95,7 +108,13 @@ export async function deleteProject(uid: string, id: string): Promise<boolean> {
   const snapshot = await ref.get();
   if (!snapshot.exists || snapshot.get("ownerUid") !== uid) return false;
   // Fichiers d'abord : si la suite échoue, le projet reste visible et la suppression peut être relancée.
-  await adminBucket().deleteFiles({ prefix: `projects/${id}/` });
+  const bucket = adminBucket();
+  await bucket.deleteFiles({ prefix: `projects/${id}/` });
+  // Fichiers de travail des rendus (render-jobs/{renderId}.json et .result.json) : nommés par rendu, pas par projet.
+  const renders = Object.values((snapshot.get("renders") ?? {}) as Record<string, { renderId?: unknown }>);
+  for (const { renderId } of renders) {
+    if (typeof renderId === "string" && isValidRenderId(renderId)) await bucket.deleteFiles({ prefix: `render-jobs/${renderId}.` });
+  }
   await adminDb().recursiveDelete(ref);
   return true;
 }

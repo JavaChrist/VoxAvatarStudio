@@ -15,6 +15,7 @@ const SECRET_KEYS = [
   "FIREBASE_ADMIN_CLIENT_EMAIL",
   "FIREBASE_ADMIN_PRIVATE_KEY",
   "ALLOWED_EMAILS",
+  "GITHUB_RENDER_TOKEN",
 ];
 
 const PATTERNS = [
@@ -22,6 +23,7 @@ const PATTERNS = [
   { name: "clé Anthropic", regex: /sk-ant-[A-Za-z0-9_-]{20,}/ },
   { name: "clé ElevenLabs", regex: /\bsk_[a-f0-9]{40,}\b/ },
   { name: "clé fal.ai", regex: /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9a-f]{32}\b/ },
+  { name: "jeton GitHub", regex: /(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{30,})/ },
   { name: "compte de service Firebase", regex: /"type"\s*:\s*"service_account"/ },
 ];
 

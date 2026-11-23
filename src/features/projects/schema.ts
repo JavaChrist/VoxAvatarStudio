@@ -1,4 +1,5 @@
 // Modèle d'un projet vidéo et validation des saisies. Partagé entre le serveur et le navigateur : aucun secret ici.
+import type { ProjectRenders } from "./render";
 import type { Script } from "./script";
 import type { AvatarVideos } from "./video";
 import type { Voice } from "./voice";
@@ -62,6 +63,8 @@ export interface Project extends ProjectInput {
   voice: Voice | null;
   /** Vidéos de Chris sur fond vert, une par format lancé ; vide au départ. */
   avatars: AvatarVideos;
+  /** Vidéos finales montées, une par format lancé ; vide au départ. */
+  renders: ProjectRenders;
   createdAt: string;
   updatedAt: string;
 }

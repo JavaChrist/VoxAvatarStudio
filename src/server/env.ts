@@ -10,6 +10,7 @@ export const SERVER_ENV_KEYS = [
   "FIREBASE_ADMIN_CLIENT_EMAIL",
   "FIREBASE_ADMIN_PRIVATE_KEY",
   "ALLOWED_EMAILS",
+  "GITHUB_RENDER_TOKEN",
 ] as const;
 
 export type ServerEnvKey = (typeof SERVER_ENV_KEYS)[number];

@@ -1,8 +1,9 @@
+import { hasActiveRender } from "@/features/projects/render";
 import { hasActiveAvatar } from "@/features/projects/video";
 import { hasEnv } from "@/server/env";
 import { errorCode } from "@/server/firebase-admin";
 import { getProject, saveVoice } from "@/server/projects";
-import { isScriptBusy, isVideoBusy, withVoiceLock } from "@/server/script-lock";
+import { isRenderBusy, isScriptBusy, isVideoBusy, withVoiceLock } from "@/server/script-lock";
 import { getSessionUser } from "@/server/session";
 import { VOICE_ERROR_STATUS, VoiceGenerationError, generateVoice, voiceUrl } from "@/server/voice";
 
@@ -33,6 +34,8 @@ export async function POST(_request: Request, { params }: Context) {
   if (isScriptBusy(id)) return Response.json({ error: "in_progress" }, { status: 409 });
   // fal lit le MP3 au démarrage de la vidéo : on ne le remplace pas tant qu'une vidéo est en cours.
   if (isVideoBusy(id) || hasActiveAvatar(project.avatars)) return Response.json({ error: "video_in_progress" }, { status: 409 });
+  // Le rendu télécharge aussi le MP3 et son alignement.
+  if (isRenderBusy(id) || hasActiveRender(project.renders)) return Response.json({ error: "render_in_progress" }, { status: 409 });
 
   try {
     const locked = await withVoiceLock(id, async () => saveVoice(id, await generateVoice(project)));

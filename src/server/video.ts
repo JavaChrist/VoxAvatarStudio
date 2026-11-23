@@ -61,9 +61,12 @@ function referencePath(format: VideoFormat): string {
   return path;
 }
 
-async function signedReadUrl(path: string, ttlSeconds: number, responseType?: string) {
+/** Lien de lecture signé V4 (gratuit, signé localement avec la clé du compte de service). */
+export async function signedReadUrl(path: string, ttlSeconds: number, responseType?: string, responseDisposition?: string) {
   const expires = Date.now() + ttlSeconds * 1000;
-  const [url] = await adminBucket().file(path).getSignedUrl({ version: "v4", action: "read", expires, responseType });
+  const [url] = await adminBucket()
+    .file(path)
+    .getSignedUrl({ version: "v4", action: "read", expires, responseType, responseDisposition });
   return { url, expiresAt: new Date(expires).toISOString() };
 }
 
