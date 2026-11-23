@@ -8,6 +8,7 @@ import {
 } from "@/features/projects/render";
 import type { Project, VideoFormat } from "@/features/projects/schema";
 import { isVoiceStale } from "@/features/projects/voice";
+import type { Signature } from "@/features/signatures/schema";
 import { requireEnv } from "./env";
 import { adminBucket } from "./firebase-admin";
 import { signedReadUrl } from "./video";
@@ -17,7 +18,7 @@ import { signedReadUrl } from "./video";
 // docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run et #list-workflow-runs-for-a-workflow
 //
 // Le dépôt est public : seul l'identifiant aléatoire du rendu part vers GitHub. Le détail du travail
-// (projet, format, titre, durée) est écrit dans le fichier privé render-jobs/{renderId}.json du bucket.
+// (projet, format, titre, durée, signature de fin) est écrit dans le fichier privé render-jobs/{renderId}.json du bucket.
 
 const REPOSITORY = "JavaChrist/VoxAvatarStudio";
 const WORKFLOW_FILE = "render.yml";
@@ -54,6 +55,39 @@ export const RENDER_ERROR_STATUS: Record<RenderError["code"], number> = {
 };
 
 const jobPath = (renderId: string) => `render-jobs/${renderId}.json`;
+/** Copie du logo pour ce rendu : la signature peut changer ou être supprimée pendant que le workflow tourne. */
+const jobLogoPath = (renderId: string, storagePath: string) =>
+  `render-jobs/${renderId}.logo.${storagePath.split(".").pop() ?? "png"}`;
+
+/** Instantané de la signature écrit dans le fichier de travail (lu par render-job.mjs). */
+type JobSignature = {
+  displayName: string;
+  tagline: string;
+  website: string;
+  handle: string;
+  qrUrl: string;
+  /** Copie privée du logo dans render-jobs/, ou null. */
+  logoPath: string | null;
+  logoType: string | null;
+};
+
+/** Copie la signature et son logo pour ce rendu ; les fichiers render-jobs/{renderId}.* sont supprimés à la fin. */
+async function snapshotSignature(renderId: string, signature: Signature): Promise<JobSignature> {
+  let logoPath: string | null = null;
+  if (signature.logo) {
+    logoPath = jobLogoPath(renderId, signature.logo.storagePath);
+    await adminBucket().file(signature.logo.storagePath).copy(adminBucket().file(logoPath));
+  }
+  return {
+    displayName: signature.displayName,
+    tagline: signature.tagline,
+    website: signature.website,
+    handle: signature.handle,
+    qrUrl: signature.qrUrl,
+    logoPath,
+    logoType: signature.logo?.contentType ?? null,
+  };
+}
 const resultPath = (renderId: string) => `render-jobs/${renderId}.result.json`;
 
 function githubHeaders(): HeadersInit {
@@ -83,9 +117,10 @@ async function dispatchWorkflow(renderId: string): Promise<number | null> {
 
 /**
  * Lance le rendu d'un format sur GitHub Actions (gratuit pour un dépôt public).
- * Le propriétaire du projet doit avoir été vérifié par getProject ; l'appelant enregistre le résultat avec saveRender.
+ * Le propriétaire du projet et de la signature doit avoir été vérifié (getProject, getSignature) ;
+ * l'appelant enregistre le résultat avec saveRender.
  */
-export async function startRender(project: Project, format: VideoFormat): Promise<ProjectRender> {
+export async function startRender(project: Project, format: VideoFormat, signature: Signature | null): Promise<ProjectRender> {
   if (!project.formats.includes(format)) throw new RenderError("format_invalid", `format ${format} non choisi`);
   const avatar = project.avatars[format];
   const voice = project.voice;
@@ -103,15 +138,29 @@ export async function startRender(project: Project, format: VideoFormat): Promis
   // 128 bits aléatoires en base64url (22 caractères) : imprévisible, et accepté par le motif du workflow.
   const renderId = randomBytes(16).toString("base64url");
   const title = (project.script?.title ?? project.topic).trim().slice(0, TITLE_MAX);
-  const job = { version: 1, projectId: project.id, format, title, durationSeconds: voice.durationSeconds };
-  const jobFile = adminBucket().file(jobPath(renderId));
-  await jobFile.save(JSON.stringify(job), { contentType: "application/json", resumable: false });
+  try {
+    const job = {
+      version: 1,
+      projectId: project.id,
+      format,
+      title,
+      durationSeconds: voice.durationSeconds,
+      signature: signature ? await snapshotSignature(renderId, signature) : null,
+    };
+    await adminBucket()
+      .file(jobPath(renderId))
+      .save(JSON.stringify(job), { contentType: "application/json", resumable: false });
+  } catch (error) {
+    // Erreur Storage : remontée telle quelle (erreur serveur), sans laisser de fichier orphelin.
+    await cleanupJob(renderId);
+    throw error;
+  }
 
   let runId: number | null;
   try {
     runId = await dispatchWorkflow(renderId);
   } catch (error) {
-    await jobFile.delete({ ignoreNotFound: true }).catch(() => undefined);
+    await cleanupJob(renderId);
     if (error instanceof RenderError) throw error;
     throw new RenderError("provider_error", "github dispatch réseau");
   }
@@ -129,6 +178,8 @@ export async function startRender(project: Project, format: VideoFormat): Promis
     sizeBytes: null,
     renderSeconds: null,
     error: null,
+    signatureId: signature?.id ?? null,
+    signatureName: signature?.name ?? null,
   };
 }
 

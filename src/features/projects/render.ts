@@ -37,6 +37,13 @@ export interface ProjectRender {
   renderSeconds: number | null;
   /** Message d'erreur lisible, sans détail technique sensible. */
   error: string | null;
+  /**
+   * Signature de fin choisie au lancement (copiée dans le fichier de travail), null : aucune.
+   * Absent sur les rendus lancés avant l'ajout des signatures.
+   */
+  signatureId?: string | null;
+  /** Nom de la signature au moment du lancement, pour l'affichage. */
+  signatureName?: string | null;
 }
 
 /** Un rendu par format déjà lancé. */
@@ -58,3 +65,9 @@ export const renderStoragePath = (projectId: string, format: VideoFormat) =>
 /** Vrai si un rendu tourne (hors rendu bloqué) : il écrit encore dans les fichiers du projet. */
 export const hasActiveRender = (renders: ProjectRenders, now = Date.now()) =>
   Object.values(renders).some((render) => isRenderPending(render) && !isRenderStalled(render, now));
+
+/** Signature utilisée par le dernier rendu lancé : choix proposé par défaut au prochain montage. */
+export const lastSignatureId = (renders: ProjectRenders): string | null =>
+  Object.values(renders)
+    .filter((render) => render.signatureId !== undefined)
+    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0]?.signatureId ?? null;

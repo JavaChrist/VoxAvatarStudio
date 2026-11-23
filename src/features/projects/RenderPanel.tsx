@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, Clock, Download, Film, LoaderCircle, RefreshCw, Scissors } from "lucide-react";
 import { formatDate } from "@/features/projects/ProjectStatusBadge";
@@ -9,13 +10,16 @@ import {
   isRenderPending,
   isRenderStale,
   isRenderStalled,
+  lastSignatureId,
   type ProjectRender,
   type ProjectRenders,
 } from "@/features/projects/render";
 import type { VideoFormat } from "@/features/projects/schema";
 import { isAvatarStale, type AvatarVideo, type AvatarVideos } from "@/features/projects/video";
 import type { Voice } from "@/features/projects/voice";
+import { SIGNATURE_SECONDS } from "@/features/signatures/schema";
 import { buttonPrimary, buttonSecondary } from "@/ui/buttons";
+import { inputClass } from "@/ui/fields";
 import { useModal } from "@/ui/modal/ModalProvider";
 
 /** Messages affichés pour chaque code d'erreur renvoyé par l'API. */
@@ -29,7 +33,11 @@ const RENDER_ERRORS: Record<string, string> = {
   in_progress: "Une génération ou un rendu est déjà en cours pour ce projet. Patiente quelques secondes.",
   already_running: "Un rendu est déjà en cours pour ce format.",
   provider_error: "GitHub Actions ne répond pas pour le moment. Réessaie dans un instant.",
+  signature_not_found: "Cette signature n'existe plus. Recharge la page et choisis-en une autre.",
 };
+
+/** Signature proposée au montage : seul le nom sert ici, le serveur relit le reste au lancement. */
+export type SignatureChoice = { id: string; name: string };
 
 /** Intervalle de suivi tant qu'un rendu tourne (le suivi est gratuit). */
 const POLL_MS = 15_000;
@@ -64,14 +72,21 @@ interface Props {
   voice: Voice | null;
   avatars: AvatarVideos;
   initialRenders: ProjectRenders;
+  /** null : la liste n'a pas pu être chargée, le montage reste possible sans signature. */
+  signatures: SignatureChoice[] | null;
 }
 
-export function RenderPanel({ projectId, formats, voice, avatars, initialRenders }: Props) {
+export function RenderPanel({ projectId, formats, voice, avatars, initialRenders, signatures }: Props) {
   const router = useRouter();
   const modal = useModal();
   const [renders, setRenders] = useState<ProjectRenders>(initialRenders);
   const [urls, setUrls] = useState<RenderLinks>({});
   const [starting, setStarting] = useState<VideoFormat | null>(null);
+  // Par défaut, la signature du dernier rendu lancé, si elle existe encore ; "" : aucune.
+  const [signatureId, setSignatureId] = useState(() => {
+    const last = lastSignatureId(initialRenders);
+    return last && signatures?.some((s) => s.id === last) ? last : "";
+  });
   // Un seul renouvellement automatique du lien de lecture par format, pour ne pas boucler si le fichier est absent.
   const retried = useRef(new Set<VideoFormat>());
   const lastStatus = useRef<string | null>(null);
@@ -141,7 +156,7 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
       const response = await fetch(`/api/projects/${projectId}/render`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ format }),
+        body: JSON.stringify({ format, signatureId: signatureId || null }),
       });
       if (response.status === 401) return router.replace("/connexion");
       const data = await response.json().catch(() => null);
@@ -180,6 +195,8 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
         Montage
       </h2>
 
+      <SignaturePicker signatures={signatures} value={signatureId} onChange={setSignatureId} disabled={starting !== null} />
+
       <ul className="flex flex-col gap-4">
         {formats.map((format) => (
           <RenderRow
@@ -198,7 +215,8 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
       </ul>
 
       <p className="text-xs text-quiet">
-        Détourage du fond vert et montage Remotion (titre, sous-titres mot à mot) sur GitHub Actions · gratuit · liens privés, valables 15 min.
+        Détourage du fond vert et montage Remotion (titre, sous-titres mot à mot, signature de fin) sur GitHub Actions · gratuit ·
+        liens privés, valables 15 min.
       </p>
     </section>
   );
@@ -283,6 +301,62 @@ function RenderRow({ format, render, avatar, voice, link, disabled, starting, on
   );
 }
 
+function SignaturePicker({
+  signatures,
+  value,
+  onChange,
+  disabled,
+}: {
+  signatures: SignatureChoice[] | null;
+  value: string;
+  onChange: (id: string) => void;
+  disabled: boolean;
+}) {
+  const manage = (
+    <Link href="/signatures" className="text-xs text-muted underline-offset-4 transition-colors duration-150 hover:text-ink hover:underline">
+      Gérer les signatures
+    </Link>
+  );
+  if (signatures === null) {
+    return <p className="text-xs text-muted">Signatures indisponibles pour le moment : le montage se fera sans signature de fin.</p>;
+  }
+  if (signatures.length === 0) {
+    return (
+      <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
+        Pas encore de signature de fin. {manage}
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <label htmlFor="render-signature" className="text-sm font-medium">
+        Signature de fin
+      </label>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <select
+          id="render-signature"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          disabled={disabled}
+          aria-describedby="render-signature-hint"
+          className={`${inputClass} max-w-xs`}
+        >
+          <option value="">Aucune</option>
+          {signatures.map((signature) => (
+            <option key={signature.id} value={signature.id}>
+              {signature.name}
+            </option>
+          ))}
+        </select>
+        {manage}
+      </div>
+      <p id="render-signature-hint" className="text-xs text-quiet">
+        Carte de {SIGNATURE_SECONDS} s après la voix, pour les prochains montages. Les vidéos déjà montées ne changent pas.
+      </p>
+    </div>
+  );
+}
+
 function RenderStatus({ render, ready, stalled, stale }: { render: ProjectRender | undefined; ready: boolean; stalled: boolean; stale: boolean }) {
   if (!render) {
     return (
@@ -321,6 +395,7 @@ function RenderStatus({ render, ready, stalled, stale }: { render: ProjectRender
       {stale ? <AlertTriangle className="size-3.5" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
       {stale ? "Périmé : la vidéo de Chris a changé" : "Vidéo finale prête"}
       <span className="text-quiet">
+        {render.signatureName && ` · signature « ${render.signatureName} »`}
         {render.sizeBytes !== null && ` · ${formatMegabytes(render.sizeBytes)}`}
         {render.renderSeconds !== null && ` · rendu en ${Math.round(render.renderSeconds / 60) || 1} min`}
         {render.completedAt && ` · le ${formatDate(render.completedAt)}`}

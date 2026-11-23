@@ -5,12 +5,14 @@ import { ArrowLeft } from "lucide-react";
 import { ProjectStatusBadge, formatDate } from "@/features/projects/ProjectStatusBadge";
 import { DeleteProjectButton } from "@/features/projects/DeleteProjectButton";
 import { ScriptEditor } from "@/features/projects/ScriptEditor";
-import { RenderPanel } from "@/features/projects/RenderPanel";
+import { RenderPanel, type SignatureChoice } from "@/features/projects/RenderPanel";
 import { VideoPanel } from "@/features/projects/VideoPanel";
 import { VoicePanel } from "@/features/projects/VoicePanel";
 import { DURATION_PRESETS, durationLabel, toneLabel } from "@/features/projects/schema";
+import { errorCode } from "@/server/firebase-admin";
 import { getProject } from "@/server/projects";
 import { getSessionUser } from "@/server/session";
+import { listSignatures } from "@/server/signatures";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -18,6 +20,18 @@ async function loadProject(id: string) {
   const user = await getSessionUser();
   if (!user) redirect("/connexion");
   return getProject(user.uid, id);
+}
+
+/** Signatures proposées au montage (nom seulement). En cas d'échec, le montage reste possible sans signature. */
+async function loadSignatureChoices(): Promise<SignatureChoice[] | null> {
+  const user = await getSessionUser();
+  if (!user) redirect("/connexion");
+  try {
+    return (await listSignatures(user.uid)).map(({ id, name }) => ({ id, name }));
+  } catch (error) {
+    console.error("[project] signatures list failed", errorCode(error));
+    return null;
+  }
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -28,6 +42,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ProjectPage({ params }: Props) {
   const project = await loadProject((await params).id);
   if (!project) notFound();
+  const signatures = await loadSignatureChoices();
   const preset = DURATION_PRESETS.find((p) => p.id === project.duration);
 
   const details = [
@@ -67,7 +82,7 @@ export default async function ProjectPage({ params }: Props) {
       <ScriptEditor projectId={project.id} initialScript={project.script} />
       <VoicePanel projectId={project.id} script={project.script} initialVoice={project.voice} />
       <VideoPanel projectId={project.id} formats={project.formats} script={project.script} voice={project.voice} initialAvatars={project.avatars} />
-      <RenderPanel projectId={project.id} formats={project.formats} voice={project.voice} avatars={project.avatars} initialRenders={project.renders} />
+      <RenderPanel projectId={project.id} formats={project.formats} voice={project.voice} avatars={project.avatars} initialRenders={project.renders} signatures={signatures} />
       <DeleteProjectButton projectId={project.id} topic={project.topic} hasScript={!!project.script} hasVoice={!!project.voice} />
     </div>
   );
