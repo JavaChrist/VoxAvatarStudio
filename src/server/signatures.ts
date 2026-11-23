@@ -1,6 +1,13 @@
 import "server-only";
 import { FieldValue, Timestamp, type DocumentSnapshot } from "firebase-admin/firestore";
-import type { LogoType, Signature, SignatureInput, SignatureLogo, SignatureView } from "@/features/signatures/schema";
+import {
+  LOGO_EXTENSIONS,
+  type LogoType,
+  type Signature,
+  type SignatureInput,
+  type SignatureLogo,
+  type SignatureView,
+} from "@/features/signatures/schema";
 import { adminBucket, adminDb } from "./firebase-admin";
 import type { SessionUser } from "./session";
 import { signedReadUrl } from "./video";
@@ -17,7 +24,6 @@ const toIso = (value: unknown) => (value instanceof Timestamp ? value.toDate().t
 /** Durée de validité du lien d'aperçu du logo dans l'app. */
 const LOGO_URL_TTL_SECONDS = 15 * 60;
 
-const LOGO_EXTENSIONS: Record<LogoType, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
 
 function toSignature(snapshot: DocumentSnapshot): Signature {
   const data = snapshot.data() ?? {};

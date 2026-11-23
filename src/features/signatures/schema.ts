@@ -52,10 +52,13 @@ export type SignatureValidation =
   | { ok: true; value: SignatureInput }
   | { ok: false; errors: Partial<Record<keyof SignatureInput, string>> };
 
-/** Une ligne, espaces resserrés : ces textes s'affichent tels quels dans la vidéo. */
-const line = (value: unknown) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "");
+/** Extension des fichiers de logo dans Storage, selon le type détecté. */
+export const LOGO_EXTENSIONS: Record<LogoType, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
 
-const isHttpsUrl = (value: string) => {
+/** Une ligne, espaces resserrés : ces textes s'affichent tels quels dans la vidéo. */
+export const line = (value: unknown) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "");
+
+export const isHttpsUrl = (value: string) => {
   try {
     const url = new URL(value);
     return url.protocol === "https:" && Boolean(url.hostname) && !url.username && !url.password;

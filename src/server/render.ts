@@ -7,6 +7,7 @@ import {
   type ProjectRender,
 } from "@/features/projects/render";
 import type { Project, VideoFormat } from "@/features/projects/schema";
+import { applyOverride, isEmptyOverride } from "@/features/projects/signature-override";
 import { isVoiceStale } from "@/features/projects/voice";
 import type { Signature } from "@/features/signatures/schema";
 import { requireEnv } from "./env";
@@ -118,7 +119,8 @@ async function dispatchWorkflow(renderId: string): Promise<number | null> {
 /**
  * Lance le rendu d'un format sur GitHub Actions (gratuit pour un dépôt public).
  * Le propriétaire du projet et de la signature doit avoir été vérifié (getProject, getSignature) ;
- * l'appelant enregistre le résultat avec saveRender.
+ * l'appelant enregistre le résultat avec saveRender. Les réglages de signature du projet (accroche, QR code, logo)
+ * sont posés sur la signature choisie ; sans signature choisie, ils sont ignorés.
  */
 export async function startRender(project: Project, format: VideoFormat, signature: Signature | null): Promise<ProjectRender> {
   if (!project.formats.includes(format)) throw new RenderError("format_invalid", `format ${format} non choisi`);
@@ -138,6 +140,8 @@ export async function startRender(project: Project, format: VideoFormat, signatu
   // 128 bits aléatoires en base64url (22 caractères) : imprévisible, et accepté par le motif du workflow.
   const renderId = randomBytes(16).toString("base64url");
   const title = (project.script?.title ?? project.topic).trim().slice(0, TITLE_MAX);
+  const customized = signature !== null && !isEmptyOverride(project.signatureOverride);
+  const mounted = signature ? applyOverride(signature, project.signatureOverride) : null;
   try {
     const job = {
       version: 1,
@@ -145,7 +149,7 @@ export async function startRender(project: Project, format: VideoFormat, signatu
       format,
       title,
       durationSeconds: voice.durationSeconds,
-      signature: signature ? await snapshotSignature(renderId, signature) : null,
+      signature: mounted ? await snapshotSignature(renderId, mounted) : null,
     };
     await adminBucket()
       .file(jobPath(renderId))
@@ -180,6 +184,7 @@ export async function startRender(project: Project, format: VideoFormat, signatu
     error: null,
     signatureId: signature?.id ?? null,
     signatureName: signature?.name ?? null,
+    signatureCustomized: customized,
   };
 }
 

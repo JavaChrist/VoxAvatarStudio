@@ -44,6 +44,8 @@ export interface ProjectRender {
   signatureId?: string | null;
   /** Nom de la signature au moment du lancement, pour l'affichage. */
   signatureName?: string | null;
+  /** Vrai si les réglages propres à la vidéo (accroche, QR code, logo) ont été posés sur la signature. */
+  signatureCustomized?: boolean;
 }
 
 /** Un rendu par format déjà lancé. */

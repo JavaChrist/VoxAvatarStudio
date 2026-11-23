@@ -56,11 +56,17 @@ export function SignatureEditor({
   signature,
   onSaved,
   onCancel,
+  onBusyChange,
+  bare = false,
 }: {
   /** null : nouvelle signature. */
   signature: SignatureView | null;
   onSaved: (signature: SignatureView) => void;
   onCancel: () => void;
+  /** Prévient le conteneur pendant l'enregistrement (une fenêtre ne doit pas se fermer à ce moment-là). */
+  onBusyChange?: (busy: boolean) => void;
+  /** Sans cadre : le formulaire est déjà dans une fenêtre. */
+  bare?: boolean;
 }) {
   const router = useRouter();
   const modal = useModal();
@@ -71,6 +77,8 @@ export function SignatureEditor({
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const localUrl = useRef<string | null>(null);
+
+  useEffect(() => onBusyChange?.(busy), [busy, onBusyChange]);
 
   // Libère l'image locale en quittant le formulaire.
   useEffect(() => () => {
@@ -154,9 +162,15 @@ export function SignatureEditor({
   };
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="grid gap-8 rounded-lg border border-line p-4 sm:p-6 md:grid-cols-[1fr_220px]">
+    <form
+      onSubmit={handleSubmit}
+      noValidate
+      className={`grid gap-8 md:grid-cols-[1fr_220px] ${bare ? "" : "rounded-lg border border-line p-4 sm:p-6"}`}
+    >
       <div className="flex flex-col gap-5">
-        <h2 className="text-lg font-medium">{signature ? "Modifier la signature" : "Nouvelle signature"}</h2>
+        <h2 id={bare ? "signature-editor-title" : undefined} className="text-lg font-medium">
+          {signature ? "Modifier la signature" : "Nouvelle signature"}
+        </h2>
 
         {FIELDS.map((field) => {
           const id = `signature-${field.id}`;

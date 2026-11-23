@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, Clock, Download, Film, LoaderCircle, RefreshCw, Scissors } from "lucide-react";
+import { AlertTriangle, Check, Clock, Download, Film, LoaderCircle, Plus, RefreshCw, Scissors } from "lucide-react";
 import { formatDate } from "@/features/projects/ProjectStatusBadge";
 import {
   RENDER_ESTIMATED_MINUTES,
@@ -15,9 +15,12 @@ import {
   type ProjectRenders,
 } from "@/features/projects/render";
 import type { VideoFormat } from "@/features/projects/schema";
+import type { SignatureOverrideView } from "@/features/projects/signature-override";
+import { SignatureOverridePanel, type OverrideState } from "@/features/projects/SignatureOverridePanel";
 import { isAvatarStale, type AvatarVideo, type AvatarVideos } from "@/features/projects/video";
 import type { Voice } from "@/features/projects/voice";
-import { SIGNATURE_SECONDS } from "@/features/signatures/schema";
+import { SignatureDialog } from "@/features/signatures/SignatureDialog";
+import { SIGNATURE_SECONDS, type SignatureView } from "@/features/signatures/schema";
 import { buttonPrimary, buttonSecondary } from "@/ui/buttons";
 import { inputClass } from "@/ui/fields";
 import { useModal } from "@/ui/modal/ModalProvider";
@@ -36,8 +39,8 @@ const RENDER_ERRORS: Record<string, string> = {
   signature_not_found: "Cette signature n'existe plus. Recharge la page et choisis-en une autre.",
 };
 
-/** Signature proposée au montage : seul le nom sert ici, le serveur relit le reste au lancement. */
-export type SignatureChoice = { id: string; name: string };
+/** Signature proposée au montage, avec son lien de logo pour l'aperçu ; le serveur relit tout au lancement. */
+export type SignatureChoice = SignatureView;
 
 /** Intervalle de suivi tant qu'un rendu tourne (le suivi est gratuit). */
 const POLL_MS = 15_000;
@@ -74,19 +77,27 @@ interface Props {
   initialRenders: ProjectRenders;
   /** null : la liste n'a pas pu être chargée, le montage reste possible sans signature. */
   signatures: SignatureChoice[] | null;
+  /** Accroche, QR code et logo propres à ce projet. */
+  initialOverride: SignatureOverrideView;
 }
 
-export function RenderPanel({ projectId, formats, voice, avatars, initialRenders, signatures }: Props) {
+export function RenderPanel({ projectId, formats, voice, avatars, initialRenders, signatures: initialSignatures, initialOverride }: Props) {
   const router = useRouter();
   const modal = useModal();
   const [renders, setRenders] = useState<ProjectRenders>(initialRenders);
   const [urls, setUrls] = useState<RenderLinks>({});
   const [starting, setStarting] = useState<VideoFormat | null>(null);
+  // Liste locale : une signature créée depuis le montage y apparaît sans recharger la page.
+  const [signatures, setSignatures] = useState(initialSignatures);
+  const [creatingSignature, setCreatingSignature] = useState(false);
   // Par défaut, la signature du dernier rendu lancé, si elle existe encore ; "" : aucune.
   const [signatureId, setSignatureId] = useState(() => {
     const last = lastSignatureId(initialRenders);
-    return last && signatures?.some((s) => s.id === last) ? last : "";
+    return last && initialSignatures?.some((s) => s.id === last) ? last : "";
   });
+  const [override, setOverride] = useState(initialOverride);
+  const [overrideState, setOverrideState] = useState<OverrideState>({ dirty: false, busy: false });
+  const base = signatures?.find((signature) => signature.id === signatureId) ?? null;
   // Un seul renouvellement automatique du lien de lecture par format, pour ne pas boucler si le fichier est absent.
   const retried = useRef(new Set<VideoFormat>());
   const lastStatus = useRef<string | null>(null);
@@ -140,6 +151,16 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
 
   const start = async (format: VideoFormat) => {
     const current = renders[format];
+    // Les réglages de la vidéo comptent seulement une fois enregistrés.
+    if (base && overrideState.dirty) {
+      const ok = await modal.confirm({
+        title: "Réglages non enregistrés",
+        body: "Les modifications de « Personnaliser pour cette vidéo » ne sont pas enregistrées. Le montage utilisera les derniers réglages enregistrés.",
+        confirmLabel: "Monter quand même",
+        cancelLabel: "Annuler",
+      });
+      if (!ok) return;
+    }
     // Le rendu est gratuit : on ne confirme que s'il remplace une vidéo finale existante.
     if (current?.state === "done") {
       const ok = await modal.confirm({
@@ -177,6 +198,14 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
     }
   };
 
+  // La nouvelle signature est choisie aussitôt pour ce montage.
+  const signatureCreated = (signature: SignatureView) => {
+    setSignatures((current) =>
+      [...(current ?? []).filter((s) => s.id !== signature.id), signature].sort((a, b) => a.name.localeCompare(b.name, "fr")),
+    );
+    setSignatureId(signature.id);
+  };
+
   const anyAvatarReady = formats.some((format) => isAvatarReady(avatars[format], voice));
   if (!anyAvatarReady && !hasAny) {
     return (
@@ -195,7 +224,26 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
         Montage
       </h2>
 
-      <SignaturePicker signatures={signatures} value={signatureId} onChange={setSignatureId} disabled={starting !== null} />
+      <SignaturePicker
+        signatures={signatures}
+        value={signatureId}
+        onChange={setSignatureId}
+        onCreate={() => setCreatingSignature(true)}
+        disabled={starting !== null}
+      />
+
+      {creatingSignature && <SignatureDialog onCreated={signatureCreated} onClose={() => setCreatingSignature(false)} />}
+
+      {base && (
+        <SignatureOverridePanel
+          projectId={projectId}
+          base={base}
+          saved={override}
+          disabled={starting !== null}
+          onSaved={setOverride}
+          onStateChange={setOverrideState}
+        />
+      )}
 
       <ul className="flex flex-col gap-4">
         {formats.map((format) => (
@@ -206,7 +254,7 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
             avatar={avatars[format]}
             voice={voice}
             link={urls[format]}
-            disabled={starting !== null}
+            disabled={starting !== null || overrideState.busy}
             starting={starting === format}
             onStart={() => start(format)}
             onVideoError={() => onVideoError(format)}
@@ -305,26 +353,35 @@ function SignaturePicker({
   signatures,
   value,
   onChange,
+  onCreate,
   disabled,
 }: {
   signatures: SignatureChoice[] | null;
   value: string;
   onChange: (id: string) => void;
+  onCreate: () => void;
   disabled: boolean;
 }) {
   const manage = (
-    <Link href="/signatures" className="text-xs text-muted underline-offset-4 transition-colors duration-150 hover:text-ink hover:underline">
-      Gérer les signatures
-    </Link>
+    <>
+      <button type="button" onClick={onCreate} disabled={disabled} className={buttonSecondary}>
+        <Plus className="size-4" aria-hidden />
+        Nouvelle signature
+      </button>
+      <Link href="/signatures" className="text-xs text-muted underline-offset-4 transition-colors duration-150 hover:text-ink hover:underline">
+        Gérer les signatures
+      </Link>
+    </>
   );
   if (signatures === null) {
     return <p className="text-xs text-muted">Signatures indisponibles pour le moment : le montage se fera sans signature de fin.</p>;
   }
   if (signatures.length === 0) {
     return (
-      <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
-        Pas encore de signature de fin. {manage}
-      </p>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+        <span>Pas encore de signature de fin.</span>
+        {manage}
+      </div>
     );
   }
   return (
@@ -395,7 +452,8 @@ function RenderStatus({ render, ready, stalled, stale }: { render: ProjectRender
       {stale ? <AlertTriangle className="size-3.5" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
       {stale ? "Périmé : la vidéo de Chris a changé" : "Vidéo finale prête"}
       <span className="text-quiet">
-        {render.signatureName && ` · signature « ${render.signatureName} »`}
+        {render.signatureName &&
+          ` · signature « ${render.signatureName} »${render.signatureCustomized ? " (personnalisée)" : ""}`}
         {render.sizeBytes !== null && ` · ${formatMegabytes(render.sizeBytes)}`}
         {render.renderSeconds !== null && ` · rendu en ${Math.round(render.renderSeconds / 60) || 1} min`}
         {render.completedAt && ` · le ${formatDate(render.completedAt)}`}

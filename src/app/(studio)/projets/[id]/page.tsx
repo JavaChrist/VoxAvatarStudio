@@ -12,7 +12,10 @@ import { DURATION_PRESETS, durationLabel, toneLabel } from "@/features/projects/
 import { errorCode } from "@/server/firebase-admin";
 import { getProject } from "@/server/projects";
 import { getSessionUser } from "@/server/session";
-import { listSignatures } from "@/server/signatures";
+import type { Project } from "@/features/projects/schema";
+import { EMPTY_OVERRIDE_VIEW, type SignatureOverrideView } from "@/features/projects/signature-override";
+import { listSignatures, toView } from "@/server/signatures";
+import { toOverrideView } from "@/server/signature-override";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -22,15 +25,25 @@ async function loadProject(id: string) {
   return getProject(user.uid, id);
 }
 
-/** Signatures proposées au montage (nom seulement). En cas d'échec, le montage reste possible sans signature. */
+/** Signatures proposées au montage, avec liens d'aperçu du logo. En cas d'échec, le montage reste possible sans signature. */
 async function loadSignatureChoices(): Promise<SignatureChoice[] | null> {
   const user = await getSessionUser();
   if (!user) redirect("/connexion");
   try {
-    return (await listSignatures(user.uid)).map(({ id, name }) => ({ id, name }));
+    return await Promise.all((await listSignatures(user.uid)).map(toView));
   } catch (error) {
     console.error("[project] signatures list failed", errorCode(error));
     return null;
+  }
+}
+
+/** Réglages de signature propres au projet, avec le lien d'aperçu de son logo. */
+async function loadOverride(project: Project): Promise<SignatureOverrideView> {
+  try {
+    return await toOverrideView(project.signatureOverride);
+  } catch (error) {
+    console.error("[project] signature override view failed", errorCode(error));
+    return project.signatureOverride ? { ...project.signatureOverride, logoUrl: null } : EMPTY_OVERRIDE_VIEW;
   }
 }
 
@@ -42,7 +55,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ProjectPage({ params }: Props) {
   const project = await loadProject((await params).id);
   if (!project) notFound();
-  const signatures = await loadSignatureChoices();
+  const [signatures, initialOverride] = await Promise.all([loadSignatureChoices(), loadOverride(project)]);
   const preset = DURATION_PRESETS.find((p) => p.id === project.duration);
 
   const details = [
@@ -82,7 +95,7 @@ export default async function ProjectPage({ params }: Props) {
       <ScriptEditor projectId={project.id} initialScript={project.script} />
       <VoicePanel projectId={project.id} script={project.script} initialVoice={project.voice} />
       <VideoPanel projectId={project.id} formats={project.formats} script={project.script} voice={project.voice} initialAvatars={project.avatars} />
-      <RenderPanel projectId={project.id} formats={project.formats} voice={project.voice} avatars={project.avatars} initialRenders={project.renders} signatures={signatures} />
+      <RenderPanel projectId={project.id} formats={project.formats} voice={project.voice} avatars={project.avatars} initialRenders={project.renders} signatures={signatures} initialOverride={initialOverride} />
       <DeleteProjectButton projectId={project.id} topic={project.topic} hasScript={!!project.script} hasVoice={!!project.voice} />
     </div>
   );

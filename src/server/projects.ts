@@ -3,6 +3,7 @@ import { FieldPath, FieldValue, Timestamp, type DocumentSnapshot } from "firebas
 import type { Project, ProjectInput } from "@/features/projects/schema";
 import { toScene, totals, type Script, type ScriptEdit } from "@/features/projects/script";
 import { isValidRenderId, type ProjectRender } from "@/features/projects/render";
+import { EMPTY_OVERRIDE } from "@/features/projects/signature-override";
 import type { AvatarVideo } from "@/features/projects/video";
 import type { Voice } from "@/features/projects/voice";
 import { adminBucket, adminDb } from "./firebase-admin";
@@ -30,6 +31,8 @@ function toProject(snapshot: DocumentSnapshot): Project {
     voice: data.voice ?? null,
     avatars: data.avatars ?? {},
     renders: data.renders ?? {},
+    // Champs écrits un à un : on complète ceux qui manquent.
+    signatureOverride: data.signatureOverride ? { ...EMPTY_OVERRIDE, ...data.signatureOverride } : null,
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
   };
