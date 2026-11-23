@@ -9,6 +9,7 @@ import {
 import type { Project, VideoFormat } from "@/features/projects/schema";
 import { applyOverride, isEmptyOverride } from "@/features/projects/signature-override";
 import { INSERT_EXTENSIONS } from "@/features/projects/inserts";
+import { avatarAppearance, isAvatarOtherAppearance } from "@/features/projects/video";
 import { isVoiceStale, type Voice } from "@/features/projects/voice";
 import type { Background } from "@/features/backgrounds/schema";
 import { MUSIC_EXTENSIONS, type Music } from "@/features/music/schema";
@@ -22,7 +23,7 @@ import { signedReadUrl } from "./video";
 // docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run et #list-workflow-runs-for-a-workflow
 //
 // Le dépôt est public : seul l'identifiant aléatoire du rendu part vers GitHub. Le détail du travail
-// (projet, format, titre, durée, signature de fin, fond, musique, images insérées) est écrit dans le fichier privé render-jobs/{renderId}.json du bucket.
+// (projet, format, titre, durée, pose de Chris, signature de fin, fond, musique, images insérées) est écrit dans le fichier privé render-jobs/{renderId}.json du bucket.
 
 const REPOSITORY = "JavaChrist/VoxAvatarStudio";
 const WORKFLOW_FILE = "render.yml";
@@ -180,7 +181,9 @@ export async function startRender(
     throw new RenderError("avatar_missing", "vidéo de Chris absente");
   }
   if (isVoiceStale(voice, project.script)) throw new RenderError("voice_stale", "voix périmée");
-  if (avatar.voiceGeneratedAt !== voice.generatedAt) throw new RenderError("avatar_stale", "vidéo de Chris périmée");
+  if (avatar.voiceGeneratedAt !== voice.generatedAt || isAvatarOtherAppearance(avatar, project.appearance)) {
+    throw new RenderError("avatar_stale", "vidéo de Chris périmée");
+  }
   if (!(voice.durationSeconds > 0 && voice.durationSeconds <= MAX_SECONDS)) throw new RenderError("too_long", "durée hors limite");
   const current = project.renders[format];
   if (current && isRenderPending(current) && !isRenderStalled(current)) {
@@ -199,6 +202,8 @@ export async function startRender(
       format,
       title,
       durationSeconds: voice.durationSeconds,
+      // Pose de la vidéo de Chris utilisée : elle règle le cadrage du montage (Short.tsx).
+      pose: avatarAppearance(avatar).pose,
       signature: mounted ? await snapshotSignature(renderId, mounted) : null,
       background: background ? await snapshotBackground(renderId, background) : null,
       music: music ? await snapshotMusic(renderId, music) : null,

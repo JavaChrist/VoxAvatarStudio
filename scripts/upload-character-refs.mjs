@@ -1,4 +1,5 @@
-// Copie les images de référence de Chris (une par format) dans le bucket Storage, au même chemin que dans le dépôt.
+// Copie les images de référence de Chris (une par tenue, pose et format) dans le bucket Storage, au même chemin que dans le dépôt.
+// La liste vient du catalogue characters/chris/tenues.json (scripts/prepare_outfits.py).
 // Elles restent privées : fal.ai les reçoit plus tard par URL signée temporaire.
 // Usage : npm run upload:character        (envoie seulement ce qui manque ou a changé)
 //         npm run upload:character -- --check   (vérifie sans rien envoyer)
@@ -9,8 +10,10 @@ import { cert, initializeApp } from "firebase-admin/app";
 import { getStorage } from "firebase-admin/storage";
 
 const checkOnly = process.argv.includes("--check");
-const character = JSON.parse(readFileSync("characters/chris/character.json", "utf8"));
-const paths = Object.values(character.reference_images);
+const catalog = JSON.parse(readFileSync("characters/chris/tenues.json", "utf8"));
+const paths = catalog.outfits.flatMap((outfit) => Object.values(outfit.poses).flatMap((pose) => Object.values(pose.reference_images)));
+if (paths.length === 0) throw new Error("Catalogue des tenues vide");
+console.log(`${paths.length} images de référence dans le catalogue`);
 
 function env(name) {
   const value = process.env[name]?.trim();

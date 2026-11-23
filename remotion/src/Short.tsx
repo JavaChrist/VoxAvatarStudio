@@ -32,6 +32,19 @@ export const FORMATS = {
 } as const;
 export type Format = keyof typeof FORMATS;
 
+/** Pose de Chris : debout (il rétrécit pendant les cartes) ou assis derrière un bureau (taille fixe). */
+export type Pose = "standing" | "seated";
+
+/**
+ * Chris assis : la vidéo remplit toute l'image (bureau en bas, d'un bord à l'autre) et le haut reste vide,
+ * la tête commençant à head_top de scripts/prepare_chris_seated.py. La carte occupe ce vide, les sous-titres le bureau.
+ */
+const SEATED_LAYOUTS: Record<Format, { avatarHeight: number; captionTop: number; insertTop: number; insertHeight: number }> = {
+  "9:16": { avatarHeight: 1, captionTop: 0.85, insertTop: 0.06, insertHeight: 0.31 },
+  "4:5": { avatarHeight: 1, captionTop: 0.89, insertTop: 0.05, insertHeight: 0.26 },
+  "1:1": { avatarHeight: 1, captionTop: 0.88, insertTop: 0.04, insertHeight: 0.2 },
+};
+
 const COLORS = { black: "#0b0b0c", ink: "#ffffff", accent: "#ff7a1a", glow: "#3a1d08" };
 
 /** Durée d'affichage du titre d'ouverture. */
@@ -112,6 +125,8 @@ export type ShortProps = {
   background?: string | null;
   /** Musique de fond jouée en boucle ; volume sous la voix entre 0 et 1. Absente ou null : pas de musique. */
   music?: { src: string; volume: number } | null;
+  /** Pose de la vidéo de Chris ; absente : debout. */
+  pose?: Pose;
   /** Images des scènes, avec le minutage de la scène dans la voix (secondes). Dimensions remplies par calculateMetadata. */
   inserts?: ShortInsert[];
   /** Carte de fin ; absente ou null : la vidéo s'arrête avec la voix. */
@@ -289,12 +304,14 @@ export function Short({
   background = null,
   music = null,
   inserts = [],
+  pose = "standing",
   signature,
   captions = [],
 }: ShortProps) {
   const { fps, durationInFrames } = useVideoConfig();
   const voiceEnd = voiceFrames(durationSeconds);
-  const layout = FORMATS[format];
+  const seated = pose === "seated";
+  const layout = seated ? { ...FORMATS[format], ...SEATED_LAYOUTS[format] } : FORMATS[format];
   const pages = useMemo(
     () => createTikTokStyleCaptions({ captions, combineTokensWithinMilliseconds: CAPTION_PAGE_MS }).pages,
     [captions],
@@ -317,7 +334,7 @@ export function Short({
     <AbsoluteFill style={{ backgroundColor: COLORS.black }}>
       <Background image={background} />
       <Sequence durationInFrames={voiceEnd} name="Chris">
-        <Avatar src={resolve(avatar)} height={layout.avatarHeight} windows={shrinkWindows(cards)} />
+        <Avatar src={resolve(avatar)} height={layout.avatarHeight} windows={seated ? [] : shrinkWindows(cards)} />
       </Sequence>
       <Sequence durationInFrames={voiceEnd} name="Voix">
         <Audio src={resolve(audio)} />

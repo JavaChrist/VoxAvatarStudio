@@ -3,16 +3,10 @@
   "name": "Chris",
   "version": "1.0.0",
   "style": "stylized 3D cartoon",
-  "source_image": "Personnage/Homme 3D à lunettes et bouc-6.png",
-  "reference_images": {
-    "9:16": "characters/chris/ref/chris-9x16.png",
-    "4:5": "characters/chris/ref/chris-4x5.png",
-    "1:1": "characters/chris/ref/chris-1x1.png"
-  },
-  "cutout": "characters/chris/ref/cutout.png",
+  "outfits_catalog": "characters/chris/tenues.json",
   "background": {
     "color": "#00FF00",
-    "built_with": "scripts/prepare_chris_reference.py (rembg isnet-general-use, local)"
+    "built_with": "scripts/prepare_outfits.py (rembg isnet-general-use, local)"
   },
   "voice": {
     "provider": "elevenlabs",

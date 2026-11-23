@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, Clapperboard, Clock, LoaderCircle, RefreshCw, Video } from "lucide-react";
+import type { Appearance } from "@/features/projects/appearance";
 import { formatDate } from "@/features/projects/ProjectStatusBadge";
 import type { VideoFormat } from "@/features/projects/schema";
 import type { Script } from "@/features/projects/script";
@@ -63,10 +64,12 @@ interface Props {
   formats: VideoFormat[];
   script: Script | null;
   voice: Voice | null;
+  /** Tenue et pose actuelles de Chris dans ce projet. */
+  appearance: Appearance;
   initialAvatars: AvatarVideos;
 }
 
-export function VideoPanel({ projectId, formats, script, voice, initialAvatars }: Props) {
+export function VideoPanel({ projectId, formats, script, voice, appearance, initialAvatars }: Props) {
   const router = useRouter();
   const modal = useModal();
   const [avatars, setAvatars] = useState<AvatarVideos>(initialAvatars);
@@ -203,6 +206,7 @@ export function VideoPanel({ projectId, formats, script, voice, initialAvatars }
             format={format}
             video={avatars[format]}
             voice={voice}
+            appearance={appearance}
             url={urls[format]?.url}
             disabled={voiceStale || starting !== null}
             starting={starting === format}
@@ -223,6 +227,7 @@ interface RowProps {
   format: VideoFormat;
   video: AvatarVideo | undefined;
   voice: Voice;
+  appearance: Appearance;
   url: string | undefined;
   disabled: boolean;
   starting: boolean;
@@ -230,10 +235,10 @@ interface RowProps {
   onVideoError: () => void;
 }
 
-function FormatRow({ format, video, voice, url, disabled, starting, onStart, onVideoError }: RowProps) {
+function FormatRow({ format, video, voice, appearance, url, disabled, starting, onStart, onVideoError }: RowProps) {
   const stalled = video ? isAvatarStalled(video) : false;
   const pending = video ? isAvatarPending(video) && !stalled : false;
-  const stale = video ? isAvatarStale(video, voice) : false;
+  const stale = video ? isAvatarStale(video, voice, appearance) : false;
   const canStart = !pending && !disabled;
 
   const button = (

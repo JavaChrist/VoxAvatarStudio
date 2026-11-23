@@ -7,6 +7,7 @@ import { DeleteProjectButton } from "@/features/projects/DeleteProjectButton";
 import { ScriptEditor } from "@/features/projects/ScriptEditor";
 import { RenderPanel, type BackgroundChoice, type MusicChoice, type SignatureChoice } from "@/features/projects/RenderPanel";
 import { VideoPanel } from "@/features/projects/VideoPanel";
+import { CharacterPanel } from "@/features/projects/CharacterPanel";
 import { InsertsPanel } from "@/features/projects/InsertsPanel";
 import type { InsertView } from "@/features/projects/inserts";
 import { VoicePanel } from "@/features/projects/VoicePanel";
@@ -139,9 +140,10 @@ export default async function ProjectPage({ params }: Props) {
 
       <ScriptEditor projectId={project.id} initialScript={project.script} />
       <VoicePanel projectId={project.id} script={project.script} initialVoice={project.voice} />
-      <VideoPanel projectId={project.id} formats={project.formats} script={project.script} voice={project.voice} initialAvatars={project.avatars} />
+      <CharacterPanel projectId={project.id} appearance={project.appearance} avatars={project.avatars} />
+      <VideoPanel projectId={project.id} formats={project.formats} script={project.script} voice={project.voice} appearance={project.appearance} initialAvatars={project.avatars} />
       <InsertsPanel projectId={project.id} script={project.script} voice={project.voice} initialInserts={inserts} />
-      <RenderPanel projectId={project.id} formats={project.formats} voice={project.voice} avatars={project.avatars} initialRenders={project.renders} signatures={signatures} backgrounds={backgrounds} music={music} initialOverride={initialOverride} />
+      <RenderPanel projectId={project.id} formats={project.formats} voice={project.voice} appearance={project.appearance} avatars={project.avatars} initialRenders={project.renders} signatures={signatures} backgrounds={backgrounds} music={music} initialOverride={initialOverride} />
       <DeleteProjectButton projectId={project.id} topic={project.topic} hasScript={!!project.script} hasVoice={!!project.voice} />
     </div>
   );

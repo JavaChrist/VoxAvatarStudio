@@ -1,5 +1,6 @@
 import "server-only";
 import { FieldPath, FieldValue, Timestamp, type DocumentSnapshot } from "firebase-admin/firestore";
+import { DEFAULT_APPEARANCE, readAppearance, type Appearance } from "@/features/projects/appearance";
 import type { Project, ProjectInput } from "@/features/projects/schema";
 import { toScene, totals, type Script, type ScriptEdit } from "@/features/projects/script";
 import { isValidRenderId, type ProjectRender } from "@/features/projects/render";
@@ -34,6 +35,7 @@ function toProject(snapshot: DocumentSnapshot): Project {
     // Champs écrits un à un : on complète ceux qui manquent.
     signatureOverride: data.signatureOverride ? { ...EMPTY_OVERRIDE, ...data.signatureOverride } : null,
     inserts: data.inserts ?? {},
+    appearance: readAppearance(data.appearance),
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
   };
@@ -44,6 +46,7 @@ export async function createProject(user: SessionUser, input: ProjectInput): Pro
   await ref.set({
     ...input,
     status: "draft",
+    appearance: DEFAULT_APPEARANCE,
     ownerUid: user.uid,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
@@ -76,6 +79,16 @@ export async function saveScript(id: string, script: Script): Promise<Project> {
 export async function saveVoice(id: string, voice: Voice): Promise<Project> {
   const ref = projects().doc(id);
   await ref.update({ voice, status: "voice_ready", updatedAt: FieldValue.serverTimestamp() });
+  return toProject(await ref.get());
+}
+
+/**
+ * Enregistre la tenue et la pose de Chris. Les vidéos de Chris déjà faites restent, mais deviennent périmées
+ * si elles ont été générées avec une autre apparence. Le propriétaire doit avoir été vérifié par getProject.
+ */
+export async function saveAppearance(id: string, appearance: Appearance): Promise<Project> {
+  const ref = projects().doc(id);
+  await ref.update({ appearance, updatedAt: FieldValue.serverTimestamp() });
   return toProject(await ref.get());
 }
 

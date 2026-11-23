@@ -1,4 +1,5 @@
 // Modèle d'un projet vidéo et validation des saisies. Partagé entre le serveur et le navigateur : aucun secret ici.
+import type { Appearance } from "./appearance";
 import type { ProjectInserts } from "./inserts";
 import type { ProjectRenders } from "./render";
 import type { Script } from "./script";
@@ -71,6 +72,8 @@ export interface Project extends ProjectInput {
   signatureOverride: SignatureOverride | null;
   /** Images insérées, une au plus par scène du script ; vide au départ. */
   inserts: ProjectInserts;
+  /** Tenue et pose de Chris ; T-shirt gris debout tant que rien n'est choisi. */
+  appearance: Appearance;
   createdAt: string;
   updatedAt: string;
 }

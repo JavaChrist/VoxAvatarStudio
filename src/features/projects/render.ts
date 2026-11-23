@@ -1,6 +1,7 @@
 // Rendu final d'un format (détourage + montage Remotion), exécuté sur GitHub Actions.
 // Partagé entre le serveur et le navigateur : aucun secret ici.
 import type { VideoFormat } from "./schema";
+import type { Appearance } from "./appearance";
 import { isAvatarStale, type AvatarVideo } from "./video";
 import type { Voice } from "./voice";
 
@@ -67,8 +68,8 @@ export const isRenderStalled = (render: ProjectRender, now = Date.now()) =>
   isRenderPending(render) && now - Date.parse(render.submittedAt) > RENDER_STALL_AFTER_MS;
 
 /** Vrai si le rendu ne correspond plus à la vidéo de Chris (ou à la voix) actuelle du format. */
-export const isRenderStale = (render: ProjectRender, avatar: AvatarVideo | undefined, voice: Voice | null) =>
-  !avatar || avatar.state !== "done" || avatar.completedAt !== render.avatarCompletedAt || isAvatarStale(avatar, voice);
+export const isRenderStale = (render: ProjectRender, avatar: AvatarVideo | undefined, voice: Voice | null, appearance: Appearance) =>
+  !avatar || avatar.state !== "done" || avatar.completedAt !== render.avatarCompletedAt || isAvatarStale(avatar, voice, appearance);
 
 /** Chemin privé du MP4 final : `9:16` devient `render-9x16.mp4` (même règle que remotion/scripts/render-job.mjs). */
 export const renderStoragePath = (projectId: string, format: VideoFormat) =>

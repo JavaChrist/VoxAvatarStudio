@@ -21,6 +21,7 @@ import {
 import type { VideoFormat } from "@/features/projects/schema";
 import type { SignatureOverrideView } from "@/features/projects/signature-override";
 import { SignatureOverridePanel, type OverrideState } from "@/features/projects/SignatureOverridePanel";
+import type { Appearance } from "@/features/projects/appearance";
 import { isAvatarStale, type AvatarVideo, type AvatarVideos } from "@/features/projects/video";
 import type { Voice } from "@/features/projects/voice";
 import { SignatureDialog } from "@/features/signatures/SignatureDialog";
@@ -78,14 +79,16 @@ async function fetchRenderState(projectId: string): Promise<RenderStateResponse 
   }
 }
 
-/** Vidéo de Chris utilisable pour le montage : terminée et faite avec la voix actuelle. */
-const isAvatarReady = (avatar: AvatarVideo | undefined, voice: Voice | null): avatar is AvatarVideo =>
-  !!avatar && avatar.state === "done" && !isAvatarStale(avatar, voice);
+/** Vidéo de Chris utilisable pour le montage : terminée, faite avec la voix et l'apparence actuelles. */
+const isAvatarReady = (avatar: AvatarVideo | undefined, voice: Voice | null, appearance: Appearance): avatar is AvatarVideo =>
+  !!avatar && avatar.state === "done" && !isAvatarStale(avatar, voice, appearance);
 
 interface Props {
   projectId: string;
   formats: VideoFormat[];
   voice: Voice | null;
+  /** Tenue et pose actuelles de Chris dans ce projet. */
+  appearance: Appearance;
   avatars: AvatarVideos;
   initialRenders: ProjectRenders;
   /** null : la liste n'a pas pu être chargée, le montage reste possible sans signature. */
@@ -98,7 +101,7 @@ interface Props {
   initialOverride: SignatureOverrideView;
 }
 
-export function RenderPanel({ projectId, formats, voice, avatars, initialRenders, signatures: initialSignatures, backgrounds, music, initialOverride }: Props) {
+export function RenderPanel({ projectId, formats, voice, appearance, avatars, initialRenders, signatures: initialSignatures, backgrounds, music, initialOverride }: Props) {
   const router = useRouter();
   const modal = useModal();
   const [renders, setRenders] = useState<ProjectRenders>(initialRenders);
@@ -240,7 +243,7 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
     setSignatureId(signature.id);
   };
 
-  const anyAvatarReady = formats.some((format) => isAvatarReady(avatars[format], voice));
+  const anyAvatarReady = formats.some((format) => isAvatarReady(avatars[format], voice, appearance));
   if (!anyAvatarReady && !hasAny) {
     return (
       <section className="mt-10 rounded-lg border border-line px-6 py-8 text-center">
@@ -298,6 +301,7 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
             render={renders[format]}
             avatar={avatars[format]}
             voice={voice}
+            appearance={appearance}
             link={urls[format]}
             disabled={starting !== null || overrideState.busy}
             starting={starting === format}
@@ -320,6 +324,7 @@ interface RowProps {
   render: ProjectRender | undefined;
   avatar: AvatarVideo | undefined;
   voice: Voice | null;
+  appearance: Appearance;
   link: { url: string; downloadUrl: string } | undefined;
   disabled: boolean;
   starting: boolean;
@@ -327,11 +332,11 @@ interface RowProps {
   onVideoError: () => void;
 }
 
-function RenderRow({ format, render, avatar, voice, link, disabled, starting, onStart, onVideoError }: RowProps) {
-  const ready = isAvatarReady(avatar, voice);
+function RenderRow({ format, render, avatar, voice, appearance, link, disabled, starting, onStart, onVideoError }: RowProps) {
+  const ready = isAvatarReady(avatar, voice, appearance);
   const stalled = render ? isRenderStalled(render) : false;
   const pending = render ? isRenderPending(render) && !stalled : false;
-  const stale = render?.state === "done" && isRenderStale(render, avatar, voice);
+  const stale = render?.state === "done" && isRenderStale(render, avatar, voice, appearance);
   const canStart = ready && !pending && !disabled;
   const primary = !render || stale || render.state === "failed" || stalled;
 

@@ -6,13 +6,14 @@
 //
 // Fichier de travail (écrit par le serveur Next.js) :
 //   { "version": 1, "projectId": "...", "format": "9:16", "title": "...", "durationSeconds": 34.8,
+//     "pose": "standing" | "seated",
 //     "signature": null | { "displayName", "tagline", "website", "handle", "qrUrl",
 //                           "logoPath": "render-jobs/{RENDER_ID}.logo.png" | null, "logoType": "image/png" | null },
 //     "background": null | { "path": "render-jobs/{RENDER_ID}.background.jpg", "type": "image/jpeg" },
 //     "music": null | { "path": "render-jobs/{RENDER_ID}.music.mp3", "type": "audio/mpeg", "volume": 15 },
 //     "inserts": [{ "scene": 0, "path": "render-jobs/{RENDER_ID}.insert-0.png", "type": "image/png", "start": 0, "end": 6.8 }] }
 // Le QR code est dessiné par Remotion à partir de qrUrl ; le logo et le fond, copiés par le serveur, sont téléchargés ici.
-// "background", "music" et "inserts" peuvent manquer dans les travaux plus anciens : dégradé par défaut, ni musique ni image.
+// "pose", "background", "music" et "inserts" peuvent manquer dans les travaux plus anciens : Chris debout, dégradé par défaut, ni musique ni image.
 // Résultat écrit à la fin dans render-jobs/{RENDER_ID}.result.json :
 //   { "state": "done", "outputPath", "sizeBytes", "renderSeconds", "finishedAt" }
 //   { "state": "failed", "step", "finishedAt" }
@@ -32,6 +33,8 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FORMATS = ["9:16", "4:5", "1:1"];
+/** Poses de Chris (src/features/projects/appearance.ts) : elles règlent le cadrage dans Short.tsx. */
+const POSES = ["standing", "seated"];
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_SECONDS = 120;
 
@@ -91,11 +94,15 @@ function parseJob(raw, renderId) {
   if (typeof seconds !== "number" || !(seconds > 0 && seconds <= MAX_SECONDS)) {
     throw new StepError("Travail invalide", "durationSeconds");
   }
+  // Absente des travaux plus anciens : Chris debout.
+  const pose = job.pose ?? "standing";
+  if (!POSES.includes(pose)) throw new StepError("Travail invalide", "pose");
   return {
     projectId: job.projectId,
     format: job.format,
     title: job.title.trim(),
     durationSeconds: seconds,
+    pose,
     signature: parseSignature(job.signature, renderId),
     background: parseBackground(job.background, renderId),
     music: parseMusic(job.music, renderId),
@@ -264,6 +271,7 @@ async function main() {
       audio: `jobs/${renderId}/voice.mp3`,
       alignment: `jobs/${renderId}/voice-alignment.json`,
       durationSeconds: job.durationSeconds,
+      pose: job.pose,
       background: job.background ? `jobs/${renderId}/${job.background.file}` : null,
       music: job.music ? { src: `jobs/${renderId}/${job.music.file}`, volume: job.music.volume / 100 } : null,
       inserts: job.inserts.map((insert) => ({ src: `jobs/${renderId}/${insert.file}`, start: insert.start, end: insert.end })),

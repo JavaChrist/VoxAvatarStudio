@@ -1,0 +1,105 @@
+{
+  "default_outfit": "t-shirt-gris",
+  "default_pose": "standing",
+  "outfits": [
+    {
+      "id": "t-shirt-gris",
+      "name": "T-shirt gris",
+      "poses": {
+        "standing": {
+          "source": "Personnage/Tenues/T-shirt gris/debout.png",
+          "thumbnail": "/characters/chris/t-shirt-gris-standing.webp",
+          "reference_images": {
+            "9:16": "characters/chris/tenues/t-shirt-gris/standing/chris-9x16.png",
+            "4:5": "characters/chris/tenues/t-shirt-gris/standing/chris-4x5.png",
+            "1:1": "characters/chris/tenues/t-shirt-gris/standing/chris-1x1.png"
+          }
+        },
+        "seated": {
+          "source": "Personnage/Tenues/T-shirt gris/assis.png",
+          "thumbnail": "/characters/chris/t-shirt-gris-seated.webp",
+          "reference_images": {
+            "9:16": "characters/chris/tenues/t-shirt-gris/seated/chris-9x16.png",
+            "4:5": "characters/chris/tenues/t-shirt-gris/seated/chris-4x5.png",
+            "1:1": "characters/chris/tenues/t-shirt-gris/seated/chris-1x1.png"
+          }
+        }
+      }
+    },
+    {
+      "id": "blazer-marine",
+      "name": "Blazer marine",
+      "poses": {
+        "seated": {
+          "source": "Personnage/Tenues/Blazer marine/assis.png",
+          "thumbnail": "/characters/chris/blazer-marine-seated.webp",
+          "reference_images": {
+            "9:16": "characters/chris/tenues/blazer-marine/seated/chris-9x16.png",
+            "4:5": "characters/chris/tenues/blazer-marine/seated/chris-4x5.png",
+            "1:1": "characters/chris/tenues/blazer-marine/seated/chris-1x1.png"
+          }
+        }
+      }
+    },
+    {
+      "id": "chemise-bleue",
+      "name": "Chemise bleue",
+      "poses": {
+        "seated": {
+          "source": "Personnage/Tenues/Chemise bleue/assis.png",
+          "thumbnail": "/characters/chris/chemise-bleue-seated.webp",
+          "reference_images": {
+            "9:16": "characters/chris/tenues/chemise-bleue/seated/chris-9x16.png",
+            "4:5": "characters/chris/tenues/chemise-bleue/seated/chris-4x5.png",
+            "1:1": "characters/chris/tenues/chemise-bleue/seated/chris-1x1.png"
+          }
+        }
+      }
+    },
+    {
+      "id": "pull-bordeaux",
+      "name": "Pull bordeaux",
+      "poses": {
+        "seated": {
+          "source": "Personnage/Tenues/Pull bordeaux/assis.png",
+          "thumbnail": "/characters/chris/pull-bordeaux-seated.webp",
+          "reference_images": {
+            "9:16": "characters/chris/tenues/pull-bordeaux/seated/chris-9x16.png",
+            "4:5": "characters/chris/tenues/pull-bordeaux/seated/chris-4x5.png",
+            "1:1": "characters/chris/tenues/pull-bordeaux/seated/chris-1x1.png"
+          }
+        }
+      }
+    },
+    {
+      "id": "sweat-vert",
+      "name": "Sweat vert",
+      "poses": {
+        "seated": {
+          "source": "Personnage/Tenues/Sweat vert/assis.png",
+          "thumbnail": "/characters/chris/sweat-vert-seated.webp",
+          "reference_images": {
+            "9:16": "characters/chris/tenues/sweat-vert/seated/chris-9x16.png",
+            "4:5": "characters/chris/tenues/sweat-vert/seated/chris-4x5.png",
+            "1:1": "characters/chris/tenues/sweat-vert/seated/chris-1x1.png"
+          }
+        }
+      }
+    },
+    {
+      "id": "veste-en-jean",
+      "name": "Veste en jean",
+      "poses": {
+        "seated": {
+          "source": "Personnage/Tenues/Veste en jean/assis.png",
+          "thumbnail": "/characters/chris/veste-en-jean-seated.webp",
+          "reference_images": {
+            "9:16": "characters/chris/tenues/veste-en-jean/seated/chris-9x16.png",
+            "4:5": "characters/chris/tenues/veste-en-jean/seated/chris-4x5.png",
+            "1:1": "characters/chris/tenues/veste-en-jean/seated/chris-1x1.png"
+          }
+        }
+      }
+    }
+  ]
+}

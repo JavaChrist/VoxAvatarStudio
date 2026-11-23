@@ -3,7 +3,7 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { ApiError } from "@fal-ai/client";
-import character from "../../characters/chris/character.json";
+import { outfitPose, type Appearance } from "@/features/projects/appearance";
 import type { Project, VideoFormat } from "@/features/projects/schema";
 import {
   avatarCostUsd,
@@ -54,10 +54,13 @@ export const AVATAR_ERROR_STATUS: Record<AvatarGenerationError["code"], number> 
   provider_error: 502,
 };
 
-/** Image de référence de Chris pour un format : même chemin dans le dépôt et dans le bucket (npm run upload:character). */
-function referencePath(format: VideoFormat): string {
-  const path = (character.reference_images as Record<string, string | undefined>)[format];
-  if (!path) throw new AvatarGenerationError("reference_missing", `pas d'image pour ${format}`);
+/**
+ * Image de référence de Chris pour une tenue, une pose et un format :
+ * même chemin dans le dépôt et dans le bucket (npm run upload:character).
+ */
+function referencePath(appearance: Appearance, format: VideoFormat): string {
+  const path = outfitPose(appearance)?.referenceImages[format];
+  if (!path) throw new AvatarGenerationError("reference_missing", `pas d'image pour ${appearance.outfit} ${appearance.pose} ${format}`);
   return path;
 }
 
@@ -84,7 +87,8 @@ export async function startAvatar(project: Project, format: VideoFormat): Promis
     throw new AvatarGenerationError("already_running", "génération déjà en cours");
   }
 
-  const imagePath = referencePath(format);
+  const appearance = project.appearance;
+  const imagePath = referencePath(appearance, format);
   const [exists] = await adminBucket().file(imagePath).exists();
   if (!exists) throw new AvatarGenerationError("reference_missing", "image absente du bucket");
 
@@ -110,7 +114,7 @@ export async function startAvatar(project: Project, format: VideoFormat): Promis
   }
 
   const estimatedCostUsd = Math.round(estimateAvatarCostUsd(voice.durationSeconds) * 1000) / 1000;
-  console.info("[video] submitted", { format, requestId, voiceSeconds: voice.durationSeconds, estimatedCostUsd });
+  console.info("[video] submitted", { format, ...appearance, requestId, voiceSeconds: voice.durationSeconds, estimatedCostUsd });
   return {
     format,
     state: "queued",
@@ -124,6 +128,8 @@ export async function startAvatar(project: Project, format: VideoFormat): Promis
     durationSeconds: null,
     costUsd: null,
     error: null,
+    outfit: appearance.outfit,
+    pose: appearance.pose,
   };
 }
 

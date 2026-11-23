@@ -1,27 +1,31 @@
 # Chris
 
 The presenter of VoxAvatar Studio videos. A stylized 3D cartoon character.
-Machine-readable settings are in `character.json`.
+Machine-readable settings are in `character.json`. Outfits and poses are listed in `tenues.json`.
 
 ## Identity lock
-Chris's identity is set by **one source image only**: `Personnage/Homme 3D à lunettes et bouc-6.png`.
-The other images in `Personnage/` do not always have the same face, so they must not be used for generation.
+Chris's identity is set by the images in `Personnage/Tenues/<outfit>/`: `debout.png` (standing) and `assis.png`
+(seated behind a desk). Every outfit keeps the same face, glasses and goatee. The default look is
+`Personnage/Tenues/T-shirt gris/debout.png`.
 
 - Short tousled brown hair, greying at the temples
 - Black rectangular glasses
 - Long light-brown goatee, no moustache
-- Charcoal grey V-neck T-shirt, blue jeans, black smartwatch on the left wrist
+- Default outfit: charcoal grey V-neck T-shirt, blue jeans, black smartwatch on the left wrist
 - Friendly half-smile, three-quarter view facing the viewer's right
 
 ## Reference images
-| Format | File | Framing |
-|---|---|---|
-| 9:16 | `ref/chris-9x16.png` (1080×1920) | down to mid-thigh |
-| 4:5 | `ref/chris-4x5.png` (1080×1350) | down to the hips |
-| 1:1 | `ref/chris-1x1.png` (1080×1080) | down to the waist |
+One image per outfit, pose and format: `tenues/<outfit id>/<standing|seated>/chris-<9x16|4x5|1x1>.png`.
+
+| Pose | 9:16 (1080×1920) | 4:5 (1080×1350) | 1:1 (1080×1080) |
+|---|---|---|---|
+| standing | down to mid-thigh | down to the hips | down to the waist |
+| seated | desk across the bottom, empty space above the head for image cards | same | same |
 
 All are on pure green `#00FF00`. Chris's pixels are cut out locally with rembg and are never redrawn by AI.
-To rebuild them: `python scripts/prepare_chris_reference.py` (needs `python -m pip install "rembg[cpu]"`).
+To add an outfit: drop `debout.png` and/or `assis.png` in a new `Personnage/Tenues/<name>/` folder, then run
+`python scripts/prepare_outfits.py` (needs `python -m pip install "rembg[cpu]"`) and `npm run upload:character`.
+A project uses one outfit and one pose; a Chris video made with another one must be generated again.
 
 ## Voice
 ElevenLabs library voice. Its ID is read from `ELEVENLABS_VOICE_ID` (in `.env.local`, not versioned). Model `eleven_multilingual_v2`, French.

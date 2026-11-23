@@ -1,5 +1,6 @@
 // Vidéo « Chris qui parle » d'un projet (Kling AI Avatar v2 Pro sur fal.ai), une par format, sur fond vert.
 // Partagé entre le serveur et le navigateur : aucun secret ici.
+import { DEFAULT_APPEARANCE, sameAppearance, type Appearance, type Pose } from "./appearance";
 import type { VideoFormat } from "./schema";
 import type { Voice } from "./voice";
 
@@ -41,6 +42,9 @@ export interface AvatarVideo {
   costUsd: number | null;
   /** Message d'erreur lisible, sans détail technique sensible. */
   error: string | null;
+  /** Tenue et pose de Chris utilisées ; absentes sur les vidéos d'avant les tenues (T-shirt gris, debout). */
+  outfit?: string;
+  pose?: Pose;
 }
 
 /** Une entrée par format déjà lancé. */
@@ -60,8 +64,17 @@ export const isAvatarPending = (video: AvatarVideo) => video.state === "queued" 
 export const isAvatarStalled = (video: AvatarVideo, now = Date.now()) =>
   isAvatarPending(video) && now - Date.parse(video.submittedAt) > AVATAR_STALL_AFTER_MS;
 
-/** Vrai si la vidéo ne correspond plus à la voix actuelle du projet. */
-export const isAvatarStale = (video: AvatarVideo, voice: Voice | null) => !voice || video.voiceGeneratedAt !== voice.generatedAt;
+/** Tenue et pose avec lesquelles la vidéo a été générée. */
+export const avatarAppearance = (video: AvatarVideo): Appearance =>
+  video.outfit && video.pose ? { outfit: video.outfit, pose: video.pose } : DEFAULT_APPEARANCE;
+
+/** Vrai si la vidéo a été générée avec une autre tenue ou une autre pose que celles du projet. */
+export const isAvatarOtherAppearance = (video: AvatarVideo, appearance: Appearance) =>
+  !sameAppearance(avatarAppearance(video), appearance);
+
+/** Vrai si la vidéo ne correspond plus à la voix actuelle du projet, ou à sa tenue et sa pose. */
+export const isAvatarStale = (video: AvatarVideo, voice: Voice | null, appearance: Appearance) =>
+  !voice || video.voiceGeneratedAt !== voice.generatedAt || isAvatarOtherAppearance(video, appearance);
 
 /** Chemin privé du MP4 d'un format : `9:16` devient `avatar-9x16.mp4`. */
 export const avatarStoragePath = (projectId: string, format: VideoFormat) =>
