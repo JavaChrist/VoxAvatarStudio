@@ -46,6 +46,10 @@ export interface ProjectRender {
   signatureName?: string | null;
   /** Vrai si les réglages propres à la vidéo (accroche, QR code, logo) ont été posés sur la signature. */
   signatureCustomized?: boolean;
+  /** Fond choisi au lancement (image copiée dans le fichier de travail), null : dégradé par défaut. Absent avant l'ajout des fonds. */
+  backgroundId?: string | null;
+  /** Nom du fond au moment du lancement, pour l'affichage. */
+  backgroundName?: string | null;
 }
 
 /** Un rendu par format déjà lancé. */
@@ -73,3 +77,9 @@ export const lastSignatureId = (renders: ProjectRenders): string | null =>
   Object.values(renders)
     .filter((render) => render.signatureId !== undefined)
     .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0]?.signatureId ?? null;
+
+/** Fond utilisé par le dernier rendu lancé : choix proposé par défaut au prochain montage. */
+export const lastBackgroundId = (renders: ProjectRenders): string | null =>
+  Object.values(renders)
+    .filter((render) => render.backgroundId !== undefined)
+    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0]?.backgroundId ?? null;

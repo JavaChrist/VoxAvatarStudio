@@ -4,12 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, Clock, Download, Film, LoaderCircle, Plus, RefreshCw, Scissors } from "lucide-react";
+import type { BackgroundView } from "@/features/backgrounds/schema";
 import { formatDate } from "@/features/projects/ProjectStatusBadge";
 import {
   RENDER_ESTIMATED_MINUTES,
   isRenderPending,
   isRenderStale,
   isRenderStalled,
+  lastBackgroundId,
   lastSignatureId,
   type ProjectRender,
   type ProjectRenders,
@@ -38,10 +40,14 @@ const RENDER_ERRORS: Record<string, string> = {
   already_running: "Un rendu est déjà en cours pour ce format.",
   provider_error: "GitHub Actions ne répond pas pour le moment. Réessaie dans un instant.",
   signature_not_found: "Cette signature n'existe plus. Recharge la page et choisis-en une autre.",
+  background_not_found: "Ce fond n'existe plus. Recharge la page et choisis-en un autre.",
 };
 
 /** Signature proposée au montage, avec son lien de logo pour l'aperçu ; le serveur relit tout au lancement. */
 export type SignatureChoice = SignatureView;
+
+/** Fond proposé au montage, avec son lien d'aperçu ; le serveur revérifie le propriétaire au lancement. */
+export type BackgroundChoice = BackgroundView;
 
 /** Intervalle de suivi tant qu'un rendu tourne (le suivi est gratuit). */
 const POLL_MS = 15_000;
@@ -78,11 +84,13 @@ interface Props {
   initialRenders: ProjectRenders;
   /** null : la liste n'a pas pu être chargée, le montage reste possible sans signature. */
   signatures: SignatureChoice[] | null;
+  /** null : la liste n'a pas pu être chargée, le montage reste possible avec le dégradé. */
+  backgrounds: BackgroundChoice[] | null;
   /** Accroche, QR code et logo propres à ce projet. */
   initialOverride: SignatureOverrideView;
 }
 
-export function RenderPanel({ projectId, formats, voice, avatars, initialRenders, signatures: initialSignatures, initialOverride }: Props) {
+export function RenderPanel({ projectId, formats, voice, avatars, initialRenders, signatures: initialSignatures, backgrounds, initialOverride }: Props) {
   const router = useRouter();
   const modal = useModal();
   const [renders, setRenders] = useState<ProjectRenders>(initialRenders);
@@ -95,6 +103,11 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
   const [signatureId, setSignatureId] = useState(() => {
     const last = lastSignatureId(initialRenders);
     return last && initialSignatures?.some((s) => s.id === last) ? last : "";
+  });
+  // Par défaut, le fond du dernier rendu lancé, s'il existe encore ; "" : dégradé par défaut.
+  const [backgroundId, setBackgroundId] = useState(() => {
+    const last = lastBackgroundId(initialRenders);
+    return last && backgrounds?.some((b) => b.id === last) ? last : "";
   });
   const [override, setOverride] = useState(initialOverride);
   const [overrideState, setOverrideState] = useState<OverrideState>({ dirty: false, busy: false });
@@ -178,7 +191,7 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
       const response = await fetch(`/api/projects/${projectId}/render`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ format, signatureId: signatureId || null }),
+        body: JSON.stringify({ format, signatureId: signatureId || null, backgroundId: backgroundId || null }),
       });
       if (response.status === 401) return router.replace("/connexion");
       const data = await response.json().catch(() => null);
@@ -225,6 +238,8 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
         Montage
       </h2>
 
+      <BackgroundPicker backgrounds={backgrounds} value={backgroundId} onChange={setBackgroundId} disabled={starting !== null} />
+
       <SignaturePicker
         signatures={signatures}
         value={signatureId}
@@ -264,7 +279,7 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
       </ul>
 
       <p className="text-xs text-quiet">
-        Détourage du fond vert et montage Remotion (titre, sous-titres mot à mot, signature de fin) sur GitHub Actions · gratuit ·
+        Détourage du fond vert et montage Remotion (fond, titre, sous-titres mot à mot, signature de fin) sur GitHub Actions · gratuit ·
         liens privés, valables 15 min.
       </p>
     </section>
@@ -348,6 +363,71 @@ function RenderRow({ format, render, avatar, voice, link, disabled, starting, on
         </div>
       )}
     </li>
+  );
+}
+
+function BackgroundPicker({
+  backgrounds,
+  value,
+  onChange,
+  disabled,
+}: {
+  backgrounds: BackgroundChoice[] | null;
+  value: string;
+  onChange: (id: string) => void;
+  disabled: boolean;
+}) {
+  const manage = (
+    <Link href="/fonds" className="text-xs text-muted underline-offset-4 transition-colors duration-150 hover:text-ink hover:underline">
+      Gérer les fonds
+    </Link>
+  );
+  if (backgrounds === null) {
+    return <p className="text-xs text-muted">Fonds indisponibles pour le moment : le montage utilisera le dégradé par défaut.</p>;
+  }
+  if (backgrounds.length === 0) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+        <span>Fond : dégradé par défaut. Importe une image pour la placer derrière Chris.</span>
+        {manage}
+      </div>
+    );
+  }
+  const selected = backgrounds.find((background) => background.id === value) ?? null;
+  return (
+    <div className="flex flex-col gap-2">
+      <label htmlFor="render-background" className="text-sm font-medium">
+        Fond
+      </label>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="aspect-[9/16] w-10 shrink-0 overflow-hidden rounded-md border border-line bg-[radial-gradient(circle_at_50%_30%,#3a1d08,#0b0b0c_70%)]">
+          {selected?.imageUrl && (
+            // URL signée temporaire de Storage : pas d'optimisation next/image.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={selected.imageUrl} alt="" className="size-full object-cover" />
+          )}
+        </div>
+        <Select
+          id="render-background"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          disabled={disabled}
+          aria-describedby="render-background-hint"
+          className="max-w-xs"
+        >
+          <option value="">Dégradé par défaut</option>
+          {backgrounds.map((background) => (
+            <option key={background.id} value={background.id}>
+              {background.name}
+            </option>
+          ))}
+        </Select>
+        {manage}
+      </div>
+      <p id="render-background-hint" className="text-xs text-quiet">
+        Image derrière Chris détouré, recadrée pour remplir l&apos;écran, pour les prochains montages.
+      </p>
+    </div>
   );
 }
 
@@ -454,6 +534,7 @@ function RenderStatus({ render, ready, stalled, stale }: { render: ProjectRender
       {stale ? <AlertTriangle className="size-3.5" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
       {stale ? "Périmé : la vidéo de Chris a changé" : "Vidéo finale prête"}
       <span className="text-quiet">
+        {render.backgroundName && ` · fond « ${render.backgroundName} »`}
         {render.signatureName &&
           ` · signature « ${render.signatureName} »${render.signatureCustomized ? " (personnalisée)" : ""}`}
         {render.sizeBytes !== null && ` · ${formatMegabytes(render.sizeBytes)}`}

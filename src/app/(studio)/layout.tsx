@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Signature } from "lucide-react";
+import { Images, Signature } from "lucide-react";
 import { getSessionUser } from "@/server/session";
 import { LogoutButton } from "@/features/auth/LogoutButton";
 
@@ -19,6 +19,13 @@ export default async function StudioLayout({ children }: { children: ReactNode }
             VoxAvatar Studio
           </Link>
           <div className="flex items-center gap-4">
+            <Link
+              href="/fonds"
+              className="inline-flex items-center gap-2 text-sm text-muted transition-colors duration-150 hover:text-ink"
+            >
+              <Images className="size-4" aria-hidden />
+              Fonds
+            </Link>
             <Link
               href="/signatures"
               className="inline-flex items-center gap-2 text-sm text-muted transition-colors duration-150 hover:text-ink"

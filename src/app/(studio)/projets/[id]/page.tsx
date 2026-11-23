@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { ProjectStatusBadge, formatDate } from "@/features/projects/ProjectStatusBadge";
 import { DeleteProjectButton } from "@/features/projects/DeleteProjectButton";
 import { ScriptEditor } from "@/features/projects/ScriptEditor";
-import { RenderPanel, type SignatureChoice } from "@/features/projects/RenderPanel";
+import { RenderPanel, type BackgroundChoice, type SignatureChoice } from "@/features/projects/RenderPanel";
 import { VideoPanel } from "@/features/projects/VideoPanel";
 import { VoicePanel } from "@/features/projects/VoicePanel";
 import { DURATION_PRESETS, durationLabel, toneLabel } from "@/features/projects/schema";
@@ -15,6 +15,7 @@ import { getSessionUser } from "@/server/session";
 import type { Project } from "@/features/projects/schema";
 import { EMPTY_OVERRIDE_VIEW, type SignatureOverrideView } from "@/features/projects/signature-override";
 import { listSignatures, toView } from "@/server/signatures";
+import { listBackgrounds, toBackgroundView } from "@/server/backgrounds";
 import { toOverrideView } from "@/server/signature-override";
 
 type Props = { params: Promise<{ id: string }> };
@@ -37,6 +38,18 @@ async function loadSignatureChoices(): Promise<SignatureChoice[] | null> {
   }
 }
 
+/** Fonds proposés au montage, avec liens d'aperçu. En cas d'échec, le montage reste possible avec le dégradé. */
+async function loadBackgroundChoices(): Promise<BackgroundChoice[] | null> {
+  const user = await getSessionUser();
+  if (!user) redirect("/connexion");
+  try {
+    return await Promise.all((await listBackgrounds(user.uid)).map(toBackgroundView));
+  } catch (error) {
+    console.error("[project] backgrounds list failed", errorCode(error));
+    return null;
+  }
+}
+
 /** Réglages de signature propres au projet, avec le lien d'aperçu de son logo. */
 async function loadOverride(project: Project): Promise<SignatureOverrideView> {
   try {
@@ -55,7 +68,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ProjectPage({ params }: Props) {
   const project = await loadProject((await params).id);
   if (!project) notFound();
-  const [signatures, initialOverride] = await Promise.all([loadSignatureChoices(), loadOverride(project)]);
+  const [signatures, backgrounds, initialOverride] = await Promise.all([
+    loadSignatureChoices(),
+    loadBackgroundChoices(),
+    loadOverride(project),
+  ]);
   const preset = DURATION_PRESETS.find((p) => p.id === project.duration);
 
   const details = [
@@ -95,7 +112,7 @@ export default async function ProjectPage({ params }: Props) {
       <ScriptEditor projectId={project.id} initialScript={project.script} />
       <VoicePanel projectId={project.id} script={project.script} initialVoice={project.voice} />
       <VideoPanel projectId={project.id} formats={project.formats} script={project.script} voice={project.voice} initialAvatars={project.avatars} />
-      <RenderPanel projectId={project.id} formats={project.formats} voice={project.voice} avatars={project.avatars} initialRenders={project.renders} signatures={signatures} initialOverride={initialOverride} />
+      <RenderPanel projectId={project.id} formats={project.formats} voice={project.voice} avatars={project.avatars} initialRenders={project.renders} signatures={signatures} backgrounds={backgrounds} initialOverride={initialOverride} />
       <DeleteProjectButton projectId={project.id} topic={project.topic} hasScript={!!project.script} hasVoice={!!project.voice} />
     </div>
   );

@@ -7,8 +7,10 @@
 // Fichier de travail (écrit par le serveur Next.js) :
 //   { "version": 1, "projectId": "...", "format": "9:16", "title": "...", "durationSeconds": 34.8,
 //     "signature": null | { "displayName", "tagline", "website", "handle", "qrUrl",
-//                           "logoPath": "render-jobs/{RENDER_ID}.logo.png" | null, "logoType": "image/png" | null } }
-// Le QR code est dessiné par Remotion à partir de qrUrl ; le logo, copié par le serveur, est téléchargé ici.
+//                           "logoPath": "render-jobs/{RENDER_ID}.logo.png" | null, "logoType": "image/png" | null },
+//     "background": null | { "path": "render-jobs/{RENDER_ID}.background.jpg", "type": "image/jpeg" } }
+// Le QR code est dessiné par Remotion à partir de qrUrl ; le logo et le fond, copiés par le serveur, sont téléchargés ici.
+// "background" peut manquer dans les travaux écrits avant l'ajout des fonds : dégradé par défaut.
 // Résultat écrit à la fin dans render-jobs/{RENDER_ID}.result.json :
 //   { "state": "done", "outputPath", "sizeBytes", "renderSeconds", "finishedAt" }
 //   { "state": "failed", "step", "finishedAt" }
@@ -87,7 +89,19 @@ function parseJob(raw, renderId) {
     title: job.title.trim(),
     durationSeconds: seconds,
     signature: parseSignature(job.signature, renderId),
+    background: parseBackground(job.background, renderId),
   };
+}
+
+/** Valide le fond du travail ; null si aucun. L'image ne peut venir que de la copie faite pour ce rendu. */
+function parseBackground(raw, renderId) {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== "object") throw new StepError("Travail invalide", "background");
+  const extension = LOGO_EXTENSIONS[raw.type];
+  if (!extension || raw.path !== `render-jobs/${renderId}.background.${extension}`) {
+    throw new StepError("Travail invalide", "background");
+  }
+  return { path: raw.path, file: `background.${extension}` };
 }
 
 /** Valide la signature du travail ; null si aucune. Le logo ne peut venir que de la copie faite pour ce rendu. */
@@ -175,6 +189,7 @@ async function main() {
       [`${base}/voice-alignment.json`, "voice-alignment.json"],
     ];
     if (job.signature?.logo) inputs.push([job.signature.logo.path, job.signature.logo.file]);
+    if (job.background) inputs.push([job.background.path, job.background.file]);
     for (const [source, name] of inputs) {
       await storageStep(`Téléchargement de ${name}`, () => bucket.file(source).download({ destination: join(work, name) }));
     }
@@ -199,6 +214,7 @@ async function main() {
       audio: `jobs/${renderId}/voice.mp3`,
       alignment: `jobs/${renderId}/voice-alignment.json`,
       durationSeconds: job.durationSeconds,
+      background: job.background ? `jobs/${renderId}/${job.background.file}` : null,
       signature: job.signature && {
         displayName: job.signature.displayName,
         tagline: job.signature.tagline,
@@ -211,7 +227,7 @@ async function main() {
     const propsFile = join(work, "props.json");
     await writeFile(propsFile, JSON.stringify(props));
 
-    log(`montage Remotion (${job.format}${job.signature ? ", avec signature" : ""})`);
+    log(`montage Remotion (${job.format}${job.background ? ", avec fond" : ""}${job.signature ? ", avec signature" : ""})`);
     const renderStart = Date.now();
     // Le paquet n'exporte pas son binaire : on le retrouve à partir de son package.json.
     const cli = join(dirname(createRequire(import.meta.url).resolve("@remotion/cli/package.json")), "remotion-cli.js");

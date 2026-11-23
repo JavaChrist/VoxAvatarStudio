@@ -9,6 +9,7 @@ import {
 import type { Project, VideoFormat } from "@/features/projects/schema";
 import { applyOverride, isEmptyOverride } from "@/features/projects/signature-override";
 import { isVoiceStale } from "@/features/projects/voice";
+import type { Background } from "@/features/backgrounds/schema";
 import type { Signature } from "@/features/signatures/schema";
 import { requireEnv } from "./env";
 import { adminBucket } from "./firebase-admin";
@@ -19,7 +20,7 @@ import { signedReadUrl } from "./video";
 // docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run et #list-workflow-runs-for-a-workflow
 //
 // Le dépôt est public : seul l'identifiant aléatoire du rendu part vers GitHub. Le détail du travail
-// (projet, format, titre, durée, signature de fin) est écrit dans le fichier privé render-jobs/{renderId}.json du bucket.
+// (projet, format, titre, durée, signature de fin, fond) est écrit dans le fichier privé render-jobs/{renderId}.json du bucket.
 
 const REPOSITORY = "JavaChrist/VoxAvatarStudio";
 const WORKFLOW_FILE = "render.yml";
@@ -89,6 +90,13 @@ async function snapshotSignature(renderId: string, signature: Signature): Promis
     logoType: signature.logo?.contentType ?? null,
   };
 }
+/** Copie du fond pour ce rendu : il peut être supprimé pendant que le workflow tourne. */
+async function snapshotBackground(renderId: string, background: Background): Promise<{ path: string; type: string }> {
+  const path = `render-jobs/${renderId}.background.${background.image.storagePath.split(".").pop() ?? "png"}`;
+  await adminBucket().file(background.image.storagePath).copy(adminBucket().file(path));
+  return { path, type: background.image.contentType };
+}
+
 const resultPath = (renderId: string) => `render-jobs/${renderId}.result.json`;
 
 function githubHeaders(): HeadersInit {
@@ -118,11 +126,16 @@ async function dispatchWorkflow(renderId: string): Promise<number | null> {
 
 /**
  * Lance le rendu d'un format sur GitHub Actions (gratuit pour un dépôt public).
- * Le propriétaire du projet et de la signature doit avoir été vérifié (getProject, getSignature) ;
+ * Le propriétaire du projet, de la signature et du fond doit avoir été vérifié (getProject, getSignature, getBackground) ;
  * l'appelant enregistre le résultat avec saveRender. Les réglages de signature du projet (accroche, QR code, logo)
  * sont posés sur la signature choisie ; sans signature choisie, ils sont ignorés.
  */
-export async function startRender(project: Project, format: VideoFormat, signature: Signature | null): Promise<ProjectRender> {
+export async function startRender(
+  project: Project,
+  format: VideoFormat,
+  signature: Signature | null,
+  background: Background | null,
+): Promise<ProjectRender> {
   if (!project.formats.includes(format)) throw new RenderError("format_invalid", `format ${format} non choisi`);
   const avatar = project.avatars[format];
   const voice = project.voice;
@@ -150,6 +163,7 @@ export async function startRender(project: Project, format: VideoFormat, signatu
       title,
       durationSeconds: voice.durationSeconds,
       signature: mounted ? await snapshotSignature(renderId, mounted) : null,
+      background: background ? await snapshotBackground(renderId, background) : null,
     };
     await adminBucket()
       .file(jobPath(renderId))
@@ -185,6 +199,8 @@ export async function startRender(project: Project, format: VideoFormat, signatu
     signatureId: signature?.id ?? null,
     signatureName: signature?.name ?? null,
     signatureCustomized: customized,
+    backgroundId: background?.id ?? null,
+    backgroundName: background?.name ?? null,
   };
 }
 

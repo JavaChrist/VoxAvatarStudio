@@ -5,6 +5,7 @@ import { Audio, Video } from "@remotion/media";
 import { useMemo } from "react";
 import {
   AbsoluteFill,
+  Img,
   Sequence,
   interpolate,
   spring,
@@ -44,6 +45,8 @@ export type ShortProps = {
   /** Alignement ElevenLabs (JSON), d'où viennent les sous-titres. */
   alignment: string;
   durationSeconds: number;
+  /** Image de fond (PNG, JPEG ou WebP), chemin dans public/ ou URL ; absente ou null : dégradé par défaut. */
+  background?: string | null;
   /** Carte de fin ; absente ou null : la vidéo s'arrête avec la voix. */
   signature?: EndCardSignature | null;
   /** Rempli par calculateMetadata. */
@@ -69,7 +72,15 @@ export const calculateShortMetadata: CalculateMetadataFunction<ShortProps> = asy
   };
 };
 
-function Background() {
+function Background({ image }: { image: string | null }) {
+  if (image) {
+    // Recadrée pour remplir toute l'image, quel que soit le format.
+    return (
+      <AbsoluteFill>
+        <Img src={resolve(image)} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+      </AbsoluteFill>
+    );
+  }
   return (
     <AbsoluteFill
       style={{ background: `radial-gradient(circle at 50% 38%, ${COLORS.glow} 0%, ${COLORS.black} 62%)` }}
@@ -140,7 +151,7 @@ function CaptionPage({ page, top, size }: { page: TikTokPage; top: number; size:
   );
 }
 
-export function Short({ format, title, avatar, audio, durationSeconds, signature, captions = [] }: ShortProps) {
+export function Short({ format, title, avatar, audio, durationSeconds, background = null, signature, captions = [] }: ShortProps) {
   const { fps } = useVideoConfig();
   const voiceEnd = voiceFrames(durationSeconds);
   const layout = FORMATS[format];
@@ -151,7 +162,7 @@ export function Short({ format, title, avatar, audio, durationSeconds, signature
 
   return (
     <AbsoluteFill style={{ backgroundColor: COLORS.black }}>
-      <Background />
+      <Background image={background} />
       <Sequence durationInFrames={voiceEnd} name="Chris">
         <AbsoluteFill style={{ top: "auto", height: `${layout.avatarHeight * 100}%` }}>
           <Video src={resolve(avatar)} muted objectFit="contain" style={{ width: "100%", height: "100%" }} />

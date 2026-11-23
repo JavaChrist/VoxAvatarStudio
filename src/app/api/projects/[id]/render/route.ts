@@ -8,6 +8,8 @@ import { isVideoBusy, isVoiceBusy, withRenderLock } from "@/server/script-lock";
 import { getSessionUser } from "@/server/session";
 import { getSignature } from "@/server/signatures";
 import type { Signature } from "@/features/signatures/schema";
+import type { Background } from "@/features/backgrounds/schema";
+import { getBackground } from "@/server/backgrounds";
 
 // Le lancement et le suivi ne font que des appels courts (GitHub, Storage) ; le rendu lui-même tourne sur GitHub Actions.
 export const maxDuration = 60;
@@ -40,7 +42,8 @@ async function links(renders: ProjectRenders): Promise<RenderLinks> {
 
 /**
  * Lance le rendu final d'un format sur GitHub Actions (gratuit).
- * Corps : { format: "9:16" | "4:5" | "1:1", signatureId?: string | null } (null ou absent : pas de signature de fin).
+ * Corps : { format: "9:16" | "4:5" | "1:1", signatureId?: string | null, backgroundId?: string | null }
+ * (null ou absent : pas de signature de fin, dégradé par défaut).
  */
 export async function POST(request: Request, { params }: Context) {
   const user = await getSessionUser();
@@ -48,11 +51,13 @@ export async function POST(request: Request, { params }: Context) {
   if (!hasEnv("GITHUB_RENDER_TOKEN")) return Response.json({ error: "not_configured" }, { status: 503 });
   const { id } = await params;
 
-  const body = (await request.json().catch(() => null)) as { format?: unknown; signatureId?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { format?: unknown; signatureId?: unknown; backgroundId?: unknown } | null;
   if (!isFormat(body?.format)) return Response.json({ error: "format_invalid" }, { status: 422 });
   const format = body.format;
   const signatureId = body.signatureId ?? null;
   if (signatureId !== null && typeof signatureId !== "string") return Response.json({ error: "invalid_input" }, { status: 400 });
+  const backgroundId = body.backgroundId ?? null;
+  if (backgroundId !== null && typeof backgroundId !== "string") return Response.json({ error: "invalid_input" }, { status: 400 });
 
   const project = await loadProject(user.uid, id, "start");
   if (project instanceof Response) return project;
@@ -72,8 +77,20 @@ export async function POST(request: Request, { params }: Context) {
     if (!signature) return Response.json({ error: "signature_not_found" }, { status: 422 });
   }
 
+  let background: Background | null = null;
+  if (backgroundId !== null) {
+    try {
+      // getBackground vérifie le propriétaire : on ne peut pas monter le fond d'un autre compte.
+      background = await getBackground(user.uid, backgroundId);
+    } catch (error) {
+      console.error("[render] background read failed", errorCode(error));
+      return Response.json({ error: "server_error" }, { status: 500 });
+    }
+    if (!background) return Response.json({ error: "background_not_found" }, { status: 422 });
+  }
+
   try {
-    const locked = await withRenderLock(id, async () => saveRender(id, await startRender(project, format, signature)));
+    const locked = await withRenderLock(id, async () => saveRender(id, await startRender(project, format, signature, background)));
     if (!locked) return Response.json({ error: "in_progress" }, { status: 409 });
     return Response.json({ project: locked.value }, { headers: NO_STORE });
   } catch (error) {
