@@ -23,8 +23,8 @@ import { SignatureDialog } from "@/features/signatures/SignatureDialog";
 import { SIGNATURE_SECONDS, type SignatureView } from "@/features/signatures/schema";
 import { buttonPrimary, buttonSecondary } from "@/ui/buttons";
 import { quietPlayer } from "@/ui/media";
-import { inputClass } from "@/ui/fields";
 import { useModal } from "@/ui/modal/ModalProvider";
+import { Select } from "@/ui/Select";
 
 /** Messages affichés pour chaque code d'erreur renvoyé par l'API. */
 const RENDER_ERRORS: Record<string, string> = {
@@ -392,13 +392,13 @@ function SignaturePicker({
         Signature de fin
       </label>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <select
+        <Select
           id="render-signature"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           disabled={disabled}
           aria-describedby="render-signature-hint"
-          className={`${inputClass} max-w-xs`}
+          className="max-w-xs"
         >
           <option value="">Aucune</option>
           {signatures.map((signature) => (
@@ -406,7 +406,7 @@ function SignaturePicker({
               {signature.name}
             </option>
           ))}
-        </select>
+        </Select>
         {manage}
       </div>
       <p id="render-signature-hint" className="text-xs text-quiet">
