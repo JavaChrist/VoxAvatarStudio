@@ -4,8 +4,10 @@ import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent } from "
 import { useRouter } from "next/navigation";
 import { ChevronDown, ImageOff, ImagePlus, LoaderCircle, RotateCcw, Save, SlidersHorizontal } from "lucide-react";
 import {
+  OVERRIDE_TEXT_FIELDS,
   isEmptyOverride,
   validateOverrideInput,
+  type OverrideTextField,
   type SignatureOverrideInput,
   type SignatureOverrideView,
 } from "@/features/projects/signature-override";
@@ -16,23 +18,26 @@ import { buttonPrimary, buttonSecondary } from "@/ui/buttons";
 import { fieldErrorClass, inputClass } from "@/ui/fields";
 import { useModal } from "@/ui/modal/ModalProvider";
 
-// Accroche, QR code et logo propres à une vidéo, posés sur la signature choisie au montage. Gratuit.
+// Nom affiché, accroche, site, pseudo, QR code et logo propres à une vidéo, posés sur la signature choisie au montage. Gratuit.
 
 /** Logo de la vidéo : celui de la signature, un logo propre à la vidéo, ou aucun. */
 type LogoMode = "signature" | "own" | "none";
 
 /** Brouillon du formulaire. null : la valeur de la signature (suit la signature si on en change). */
-interface Draft {
-  tagline: string | null;
-  qrUrl: string | null;
-  logoMode: LogoMode;
-}
+type Draft = Record<OverrideTextField, string | null> & { logoMode: LogoMode };
 
-type Field = "tagline" | "qrUrl";
+type Field = OverrideTextField;
 type Errors = Partial<Record<Field, string>>;
 
 const modeOf = (override: SignatureOverrideView): LogoMode => (override.hideLogo ? "none" : override.logo ? "own" : "signature");
-const draftOf = (override: SignatureOverrideView): Draft => ({ tagline: override.tagline, qrUrl: override.qrUrl, logoMode: modeOf(override) });
+const draftOf = (override: SignatureOverrideView): Draft => ({
+  displayName: override.displayName,
+  tagline: override.tagline,
+  website: override.website,
+  handle: override.handle,
+  qrUrl: override.qrUrl,
+  logoMode: modeOf(override),
+});
 
 type OverrideResult = { ok: true; override: SignatureOverrideView } | { ok: false; error: string; fields?: Errors };
 
@@ -98,17 +103,16 @@ export function SignatureOverridePanel({ projectId, base, saved, disabled, onSav
   const savedDraft = draftOf(saved);
   const dirty =
     localLogo !== null ||
-    draft.tagline !== savedDraft.tagline ||
-    draft.qrUrl !== savedDraft.qrUrl ||
+    OVERRIDE_TEXT_FIELDS.some((field) => draft[field] !== savedDraft[field]) ||
     draft.logoMode !== savedDraft.logoMode;
 
   // Avant l'affichage : un clic sur « Monter » juste après une saisie doit déjà voir les réglages non enregistrés.
   useLayoutEffect(() => onStateChange({ dirty, busy }), [dirty, busy, onStateChange]);
 
-  const shown = {
-    tagline: draft.tagline ?? base.tagline,
-    qrUrl: draft.qrUrl ?? base.qrUrl,
-  };
+  const shown = Object.fromEntries(OVERRIDE_TEXT_FIELDS.map((field) => [field, draft[field] ?? base[field]])) as Record<
+    Field,
+    string
+  >;
   const logoUrl =
     draft.logoMode === "none" ? null : draft.logoMode === "own" ? (localLogo?.url ?? saved.logoUrl) : base.logoUrl;
 
@@ -160,15 +164,19 @@ export function SignatureOverridePanel({ projectId, base, saved, disabled, onSav
     // Une valeur identique à celle de la signature n'est pas un réglage : elle suivra la signature.
     const same = (value: string | null, field: Field) => value === null || line(value) === line(base[field]);
     const input: SignatureOverrideInput = {
-      tagline: same(draft.tagline, "tagline") ? null : draft.tagline,
-      qrUrl: same(draft.qrUrl, "qrUrl") ? null : draft.qrUrl,
+      ...(Object.fromEntries(
+        OVERRIDE_TEXT_FIELDS.map((field) => [field, same(draft[field], field) ? null : draft[field]]),
+      ) as Record<Field, string | null>),
       hideLogo: draft.logoMode === "none",
     };
     const local = validateOverrideInput(input);
     if (!local.ok) {
-      const fields = { tagline: local.errors.tagline, qrUrl: local.errors.qrUrl };
+      const fields: Errors = {};
+      for (const field of OVERRIDE_TEXT_FIELDS) if (local.errors[field]) fields[field] = local.errors[field];
       setErrors(fields);
-      document.getElementById(`override-${fields.tagline ? "tagline" : "qrUrl"}`)?.focus();
+      // Le curseur va sur le premier champ en erreur, dans l'ordre du formulaire.
+      const first = OVERRIDE_TEXT_FIELDS.find((field) => fields[field]);
+      if (first) document.getElementById(`override-${first}`)?.focus();
       return;
     }
 
@@ -221,14 +229,20 @@ export function SignatureOverridePanel({ projectId, base, saved, disabled, onSav
   };
 
   const changes = [
+    saved.displayName !== null && "nom",
     saved.tagline !== null && "accroche",
+    saved.website !== null && "site",
+    saved.handle !== null && "pseudo",
     saved.qrUrl !== null && "QR code",
     (saved.hideLogo || saved.logo) && "logo",
   ].filter(Boolean);
   const locked = disabled || busy;
 
   const fields: { id: Field; label: string; max: number; placeholder: string; empty: string }[] = [
+    { id: "displayName", label: "Nom affiché", max: SIGNATURE_LIMITS.displayNameMax, placeholder: "Ex. : Chris", empty: "Vide : pas de nom dans cette vidéo." },
     { id: "tagline", label: "Accroche", max: SIGNATURE_LIMITS.taglineMax, placeholder: "Ex. : Formation Next.js", empty: "Vide : pas d'accroche dans cette vidéo." },
+    { id: "website", label: "Site", max: SIGNATURE_LIMITS.websiteMax, placeholder: "Ex. : javachrist.fr", empty: "Vide : pas de site dans cette vidéo." },
+    { id: "handle", label: "Pseudo", max: SIGNATURE_LIMITS.handleMax, placeholder: "Ex. : @javachrist", empty: "Vide : pas de pseudo dans cette vidéo." },
     { id: "qrUrl", label: "Lien du QR code", max: SIGNATURE_LIMITS.qrUrlMax, placeholder: "https://…", empty: "Vide : pas de QR code dans cette vidéo." },
   ];
 
@@ -277,7 +291,7 @@ export function SignatureOverridePanel({ projectId, base, saved, disabled, onSav
                         className="inline-flex items-center gap-1 text-xs text-muted transition-colors duration-150 hover:text-ink disabled:opacity-50"
                       >
                         <RotateCcw className="size-3.5" aria-hidden />
-                        Reprendre celle de la signature
+                        Reprendre la valeur de la signature
                       </button>
                     )}
                   </div>
@@ -299,7 +313,7 @@ export function SignatureOverridePanel({ projectId, base, saved, disabled, onSav
                     </p>
                   ) : (
                     <p id={`${id}-hint`} className="text-xs text-quiet">
-                      {own ? "Propre à cette vidéo." : "Celle de la signature."} {field.empty}
+                      {own ? "Propre à cette vidéo." : "Valeur de la signature."} {field.empty}
                     </p>
                   )}
                 </div>
@@ -356,7 +370,7 @@ export function SignatureOverridePanel({ projectId, base, saved, disabled, onSav
           <div className="flex flex-col gap-2">
             <span className="text-sm font-medium">Aperçu</span>
             <SignaturePreview
-              content={{ displayName: base.displayName, website: base.website, handle: base.handle, ...shown, logoUrl }}
+              content={{ ...shown, logoUrl }}
               className="w-full max-w-[180px]"
             />
             <p className="text-xs text-quiet">Fixe ici ; animée dans la vidéo.</p>

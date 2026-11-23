@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import type { Project } from "@/features/projects/schema";
 import {
   EMPTY_OVERRIDE,
+  OVERRIDE_TEXT_FIELDS,
   type SignatureOverride,
   type SignatureOverrideInput,
   type SignatureOverrideView,
@@ -46,14 +47,14 @@ async function reload(uid: string, id: string): Promise<Project> {
   return project;
 }
 
-/** Enregistre l'accroche, le lien du QR code et le choix « sans logo » ; le logo de la vidéo n'est pas touché. */
+/** Enregistre les textes de la vidéo et le choix « sans logo » ; le logo de la vidéo n'est pas touché. */
 export async function saveOverrideTexts(uid: string, id: string, input: SignatureOverrideInput): Promise<Project> {
-  await projectRef(id).update(
-    "signatureOverride.tagline", input.tagline,
-    "signatureOverride.qrUrl", input.qrUrl,
-    "signatureOverride.hideLogo", input.hideLogo,
-    "updatedAt", FieldValue.serverTimestamp(),
-  );
+  const texts = Object.fromEntries(OVERRIDE_TEXT_FIELDS.map((field) => [`signatureOverride.${field}`, input[field]]));
+  await projectRef(id).update({
+    ...texts,
+    "signatureOverride.hideLogo": input.hideLogo,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
   return reload(uid, id);
 }
 

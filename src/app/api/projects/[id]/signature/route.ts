@@ -3,7 +3,7 @@ import { errorCode } from "@/server/firebase-admin";
 import { getSessionUser } from "@/server/session";
 import { clearOverride, ownedProject, saveOverrideTexts, toOverrideView } from "@/server/signature-override";
 
-// Réglages de la signature de fin propres à ce projet : accroche, lien du QR code, « sans logo ». Gratuit.
+// Réglages de la signature de fin propres à ce projet : nom affiché, accroche, site, pseudo, lien du QR code, « sans logo ». Gratuit.
 type Context = { params: Promise<{ id: string }> };
 
 const NO_STORE = { "Cache-Control": "private, no-store" };
@@ -23,7 +23,7 @@ export async function GET(_request: Request, { params }: Context) {
 }
 
 /**
- * Corps : { tagline: string | null, qrUrl: string | null, hideLogo: boolean }.
+ * Corps : { displayName, tagline, website, handle, qrUrl: string | null, hideLogo: boolean }.
  * null : la valeur de la signature choisie ; "" : rien pour cette vidéo. Le logo a sa propre route.
  */
 export async function PUT(request: Request, { params }: Context) {

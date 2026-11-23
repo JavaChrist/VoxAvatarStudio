@@ -67,6 +67,10 @@ export const isHttpsUrl = (value: string) => {
   }
 };
 
+/** Pseudo d'un seul mot, @ facultatif : même règle pour les signatures et les réglages d'une vidéo. */
+export const isHandle = (value: string) => /^@?[\p{L}\p{N}_.-]+$/u.test(value);
+export const HANDLE_ERROR = "Un pseudo sans espace, par exemple @javachrist.";
+
 /** Valide et nettoie une saisie inconnue (corps JSON d'une requête). */
 export function validateSignatureInput(raw: unknown): SignatureValidation {
   const data = (typeof raw === "object" && raw ? raw : {}) as Record<string, unknown>;
@@ -87,9 +91,7 @@ export function validateSignatureInput(raw: unknown): SignatureValidation {
   if (value.tagline.length > L.taglineMax) errors.tagline = `${L.taglineMax} caractères au maximum.`;
   if (value.website.length > L.websiteMax) errors.website = `${L.websiteMax} caractères au maximum.`;
   if (value.handle.length > L.handleMax) errors.handle = `${L.handleMax} caractères au maximum.`;
-  else if (value.handle && !/^@?[\p{L}\p{N}_.-]+$/u.test(value.handle)) {
-    errors.handle = "Un pseudo sans espace, par exemple @javachrist.";
-  }
+  else if (value.handle && !isHandle(value.handle)) errors.handle = HANDLE_ERROR;
   if (value.qrUrl.length > L.qrUrlMax) errors.qrUrl = `${L.qrUrlMax} caractères au maximum.`;
   else if (value.qrUrl && !isHttpsUrl(value.qrUrl)) errors.qrUrl = "Un lien complet en https://.";
 
