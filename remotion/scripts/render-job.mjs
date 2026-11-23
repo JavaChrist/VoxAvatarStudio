@@ -1,0 +1,212 @@
+// Rendu d'une vidéo finale à partir d'un travail déposé dans Storage, sur GitHub Actions ou en local.
+//
+// Le dépôt est public, donc les logs du workflow aussi : seul l'identifiant du rendu passe en entrée.
+// Le détail (projet, format, titre) est lu dans le fichier privé render-jobs/{RENDER_ID}.json, et ce script
+// n'affiche jamais ni chemin Storage, ni identifiant de projet, ni titre.
+//
+// Fichier de travail (écrit par le serveur Next.js) :
+//   { "version": 1, "projectId": "...", "format": "9:16", "title": "...", "durationSeconds": 34.8 }
+// Résultat écrit à la fin dans render-jobs/{RENDER_ID}.result.json :
+//   { "state": "done", "outputPath", "sizeBytes", "renderSeconds", "finishedAt" }
+//   { "state": "failed", "step", "finishedAt" }
+//
+// Variables d'environnement :
+//   RENDER_ID                     identifiant du rendu (obligatoire)
+//   RENDER_BUCKET                 bucket Storage (sinon NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET, pour le test local)
+//   GOOGLE_SERVICE_ACCOUNT_JSON   clé JSON du compte de service limité à Storage (GitHub Actions)
+//   FIREBASE_ADMIN_*              à défaut, identifiants du serveur (test local avec node --env-file)
+import { Storage } from "@google-cloud/storage";
+import { JWT } from "google-auth-library";
+import { spawn } from "node:child_process";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const FORMATS = ["9:16", "4:5", "1:1"];
+const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+const MAX_SECONDS = 120;
+
+/** Détourage validé au test local du 2026-11-23 sur la vidéo Kling : bords nets, pas de reflet vert. */
+const CHROMA_FILTER = "chromakey=0x00FF00:0.28:0.08,despill=type=green,format=yuva420p";
+
+/** Erreur dont le message est sûr à afficher dans des logs publics. */
+class StepError extends Error {
+  constructor(step, detail) {
+    super(detail ? `${step} : ${detail}` : step);
+    this.step = step;
+  }
+}
+
+const log = (message) => console.log(`[rendu] ${message}`);
+
+/** Client Storage authentifié par un JWT de compte de service, limité au scope lecture/écriture Storage. */
+function storageClient() {
+  let email, key, projectId;
+  if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    try {
+      const json = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+      ({ client_email: email, private_key: key, project_id: projectId } = json);
+    } catch {
+      throw new StepError("Clé du compte de service illisible");
+    }
+  } else {
+    email = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
+    key = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, "\n");
+    projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
+  }
+  if (!email || !key || !projectId) throw new StepError("Identifiants Storage absents");
+  const authClient = new JWT({ email, key, scopes: ["https://www.googleapis.com/auth/devstorage.read_write"] });
+  return new Storage({ projectId, authClient });
+}
+
+/** Valide le fichier de travail : il décide de chemins d'écriture, rien n'est accepté tel quel. */
+function parseJob(raw) {
+  const job = typeof raw === "object" && raw ? raw : {};
+  if (job.version !== 1) throw new StepError("Travail invalide", "version");
+  if (typeof job.projectId !== "string" || !/^[A-Za-z0-9]{10,40}$/.test(job.projectId)) {
+    throw new StepError("Travail invalide", "projectId");
+  }
+  if (!FORMATS.includes(job.format)) throw new StepError("Travail invalide", "format");
+  if (typeof job.title !== "string" || job.title.length > 200) throw new StepError("Travail invalide", "title");
+  const seconds = job.durationSeconds;
+  if (typeof seconds !== "number" || !(seconds > 0 && seconds <= MAX_SECONDS)) {
+    throw new StepError("Travail invalide", "durationSeconds");
+  }
+  return { projectId: job.projectId, format: job.format, title: job.title.trim(), durationSeconds: seconds };
+}
+
+/** Lance une commande sans shell ; ses erreurs restent dans les logs, elles ne contiennent que des chemins locaux. */
+function run(step, command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"] });
+    child.on("error", () => reject(new StepError(step, "commande introuvable")));
+    child.on("exit", (code) => (code === 0 ? resolve() : reject(new StepError(step, `code ${code}`))));
+  });
+}
+
+/** Opération Storage dont l'erreur est réduite à son code : un message Google contiendrait le chemin. */
+async function storageStep(step, action) {
+  try {
+    return await action();
+  } catch (error) {
+    throw new StepError(step, typeof error === "object" && error && "code" in error ? `code ${error.code}` : "échec");
+  }
+}
+
+async function main() {
+  const renderId = process.env.RENDER_ID ?? "";
+  if (!ID_PATTERN.test(renderId)) throw new StepError("Identifiant de rendu invalide");
+  const bucketName = (process.env.RENDER_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "").trim();
+  if (!bucketName) throw new StepError("Bucket Storage absent");
+
+  const bucket = storageClient().bucket(bucketName);
+  const resultFile = bucket.file(`render-jobs/${renderId}.result.json`);
+  const started = Date.now();
+  // Dossier de travail dans public/ : Remotion sert ces fichiers via staticFile(). Ignoré par Git.
+  const work = join(ROOT, "public", "jobs", renderId);
+  const output = join(ROOT, "out", `${renderId}.mp4`);
+
+  try {
+    log("lecture du travail");
+    const [content] = await storageStep("Lecture du travail", () => bucket.file(`render-jobs/${renderId}.json`).download());
+    let raw;
+    try {
+      raw = JSON.parse(content.toString("utf8"));
+    } catch {
+      throw new StepError("Travail invalide", "JSON");
+    }
+    const job = parseJob(raw);
+    const slug = job.format.replace(":", "x");
+    const base = `projects/${job.projectId}`;
+
+    await rm(work, { recursive: true, force: true });
+    await mkdir(work, { recursive: true });
+    await mkdir(join(ROOT, "out"), { recursive: true });
+
+    log("téléchargement des médias");
+    const inputs = [
+      [`${base}/avatar-${slug}.mp4`, "avatar.mp4"],
+      [`${base}/voice.mp3`, "voice.mp3"],
+      [`${base}/voice-alignment.json`, "voice-alignment.json"],
+    ];
+    for (const [source, name] of inputs) {
+      await storageStep(`Téléchargement de ${name}`, () => bucket.file(source).download({ destination: join(work, name) }));
+    }
+
+    log("détourage du fond vert");
+    const keyStart = Date.now();
+    await run("Détourage", "ffmpeg", [
+      "-v", "error", "-y",
+      "-i", join(work, "avatar.mp4"),
+      "-t", String(job.durationSeconds),
+      "-vf", CHROMA_FILTER,
+      "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "30",
+      "-row-mt", "1", "-deadline", "good", "-cpu-used", "4", "-an",
+      join(work, "avatar.webm"),
+    ]);
+    log(`détourage terminé en ${Math.round((Date.now() - keyStart) / 1000)} s`);
+
+    const props = {
+      format: job.format,
+      title: job.title,
+      avatar: `jobs/${renderId}/avatar.webm`,
+      audio: `jobs/${renderId}/voice.mp3`,
+      alignment: `jobs/${renderId}/voice-alignment.json`,
+      durationSeconds: job.durationSeconds,
+    };
+    const propsFile = join(work, "props.json");
+    await writeFile(propsFile, JSON.stringify(props));
+
+    log(`montage Remotion (${job.format})`);
+    const renderStart = Date.now();
+    // Le paquet n'exporte pas son binaire : on le retrouve à partir de son package.json.
+    const cli = join(dirname(createRequire(import.meta.url).resolve("@remotion/cli/package.json")), "remotion-cli.js");
+    await run("Rendu Remotion", process.execPath, [
+      cli, "render", "src/index.ts", "Short", output, `--props=${propsFile}`, "--log=error",
+    ]);
+    log(`montage terminé en ${Math.round((Date.now() - renderStart) / 1000)} s`);
+
+    log("envoi de la vidéo");
+    const outputPath = `${base}/render-${slug}.mp4`;
+    await storageStep("Envoi de la vidéo", () =>
+      bucket.upload(output, { destination: outputPath, contentType: "video/mp4", metadata: { cacheControl: "private, max-age=0" } }),
+    );
+    const { size } = await stat(output);
+    await storageStep("Écriture du résultat", () =>
+      resultFile.save(
+        JSON.stringify({
+          state: "done",
+          outputPath,
+          sizeBytes: size,
+          renderSeconds: Math.round((Date.now() - started) / 1000),
+          finishedAt: new Date().toISOString(),
+        }),
+        { contentType: "application/json", resumable: false },
+      ),
+    );
+    log(`terminé en ${Math.round((Date.now() - started) / 1000)} s (${(size / 1e6).toFixed(1)} Mo)`);
+  } catch (error) {
+    const step = error instanceof StepError ? error.step : "Erreur inattendue";
+    // Le serveur lit ce fichier pour afficher l'échec ; s'il ne peut pas être écrit, le statut du workflow suffit.
+    await resultFile
+      .save(JSON.stringify({ state: "failed", step, finishedAt: new Date().toISOString() }), {
+        contentType: "application/json",
+        resumable: false,
+      })
+      .catch(() => log("résultat d'échec non enregistré"));
+    throw error;
+  } finally {
+    await rm(work, { recursive: true, force: true });
+    await rm(output, { force: true });
+  }
+}
+
+main().catch((error) => {
+  // Seuls les messages de StepError sont affichés : les autres pourraient contenir des données privées.
+  // RENDER_DEBUG=1 affiche l'erreur complète, pour un test local uniquement (jamais dans le workflow).
+  if (process.env.RENDER_DEBUG === "1" && !process.env.CI) console.error(error);
+  console.error(`[rendu] échec : ${error instanceof StepError ? error.message : "erreur inattendue"}`);
+  process.exitCode = 1;
+});
