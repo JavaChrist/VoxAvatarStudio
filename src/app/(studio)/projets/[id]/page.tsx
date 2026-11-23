@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { ProjectStatusBadge, formatDate } from "@/features/projects/ProjectStatusBadge";
 import { DeleteProjectButton } from "@/features/projects/DeleteProjectButton";
 import { ScriptEditor } from "@/features/projects/ScriptEditor";
+import { RenderPanel } from "@/features/projects/RenderPanel";
 import { VideoPanel } from "@/features/projects/VideoPanel";
 import { VoicePanel } from "@/features/projects/VoicePanel";
 import { DURATION_PRESETS, durationLabel, toneLabel } from "@/features/projects/schema";
@@ -66,6 +67,7 @@ export default async function ProjectPage({ params }: Props) {
       <ScriptEditor projectId={project.id} initialScript={project.script} />
       <VoicePanel projectId={project.id} script={project.script} initialVoice={project.voice} />
       <VideoPanel projectId={project.id} formats={project.formats} script={project.script} voice={project.voice} initialAvatars={project.avatars} />
+      <RenderPanel projectId={project.id} formats={project.formats} voice={project.voice} avatars={project.avatars} initialRenders={project.renders} />
       <DeleteProjectButton projectId={project.id} topic={project.topic} hasScript={!!project.script} hasVoice={!!project.voice} />
     </div>
   );
