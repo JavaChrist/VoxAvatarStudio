@@ -7,6 +7,7 @@ import { formatDate } from "@/features/projects/ProjectStatusBadge";
 import type { Script } from "@/features/projects/script";
 import { estimateVoiceCostUsd, isVoiceStale, voiceText, type Voice } from "@/features/projects/voice";
 import { buttonPrimary, buttonSecondary } from "@/ui/buttons";
+import { quietPlayer } from "@/ui/media";
 import { useModal } from "@/ui/modal/ModalProvider";
 
 /** Messages affichés pour chaque code d'erreur renvoyé par l'API. */
@@ -180,7 +181,7 @@ export function VoicePanel({ projectId, script, initialVoice }: { projectId: str
       </div>
 
       {audio ? (
-        <audio key={audio.url} controls preload="metadata" src={audio.url} onError={onAudioError} className="w-full">
+        <audio key={audio.url} ref={quietPlayer} controls preload="metadata" src={audio.url} onError={onAudioError} className="w-full">
           Ton navigateur ne lit pas l&apos;audio.
         </audio>
       ) : (

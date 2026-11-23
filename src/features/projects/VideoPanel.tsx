@@ -17,6 +17,7 @@ import {
 } from "@/features/projects/video";
 import { isVoiceStale, type Voice } from "@/features/projects/voice";
 import { buttonPrimary, buttonSecondary } from "@/ui/buttons";
+import { quietPlayer } from "@/ui/media";
 import { useModal } from "@/ui/modal/ModalProvider";
 
 /** Messages affichés pour chaque code d'erreur renvoyé par l'API. */
@@ -263,6 +264,7 @@ function FormatRow({ format, video, voice, url, disabled, starting, onStart, onV
           {url ? (
             <video
               key={url}
+              ref={quietPlayer}
               controls
               playsInline
               preload="metadata"

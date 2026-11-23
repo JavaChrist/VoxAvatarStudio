@@ -22,6 +22,7 @@ import type { Voice } from "@/features/projects/voice";
 import { SignatureDialog } from "@/features/signatures/SignatureDialog";
 import { SIGNATURE_SECONDS, type SignatureView } from "@/features/signatures/schema";
 import { buttonPrimary, buttonSecondary } from "@/ui/buttons";
+import { quietPlayer } from "@/ui/media";
 import { inputClass } from "@/ui/fields";
 import { useModal } from "@/ui/modal/ModalProvider";
 
@@ -328,6 +329,7 @@ function RenderRow({ format, render, avatar, voice, link, disabled, starting, on
           {link ? (
             <video
               key={link.url}
+              ref={quietPlayer}
               controls
               playsInline
               preload="metadata"
