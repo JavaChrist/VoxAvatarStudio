@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Images, Signature } from "lucide-react";
+import { Images, Music, Signature } from "lucide-react";
 import { getSessionUser } from "@/server/session";
 import { LogoutButton } from "@/features/auth/LogoutButton";
 
@@ -25,6 +25,13 @@ export default async function StudioLayout({ children }: { children: ReactNode }
             >
               <Images className="size-4" aria-hidden />
               Fonds
+            </Link>
+            <Link
+              href="/musiques"
+              className="inline-flex items-center gap-2 text-sm text-muted transition-colors duration-150 hover:text-ink"
+            >
+              <Music className="size-4" aria-hidden />
+              Musiques
             </Link>
             <Link
               href="/signatures"

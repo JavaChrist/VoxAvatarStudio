@@ -8,9 +8,10 @@
 //   { "version": 1, "projectId": "...", "format": "9:16", "title": "...", "durationSeconds": 34.8,
 //     "signature": null | { "displayName", "tagline", "website", "handle", "qrUrl",
 //                           "logoPath": "render-jobs/{RENDER_ID}.logo.png" | null, "logoType": "image/png" | null },
-//     "background": null | { "path": "render-jobs/{RENDER_ID}.background.jpg", "type": "image/jpeg" } }
+//     "background": null | { "path": "render-jobs/{RENDER_ID}.background.jpg", "type": "image/jpeg" },
+//     "music": null | { "path": "render-jobs/{RENDER_ID}.music.mp3", "type": "audio/mpeg", "volume": 15 } }
 // Le QR code est dessiné par Remotion à partir de qrUrl ; le logo et le fond, copiés par le serveur, sont téléchargés ici.
-// "background" peut manquer dans les travaux écrits avant l'ajout des fonds : dégradé par défaut.
+// "background" et "music" peuvent manquer dans les travaux plus anciens : dégradé par défaut, pas de musique.
 // Résultat écrit à la fin dans render-jobs/{RENDER_ID}.result.json :
 //   { "state": "done", "outputPath", "sizeBytes", "renderSeconds", "finishedAt" }
 //   { "state": "failed", "step", "finishedAt" }
@@ -36,6 +37,10 @@ const MAX_SECONDS = 120;
 /** Mêmes limites que SIGNATURE_LIMITS dans l'app (src/features/signatures/schema.ts). */
 const SIGNATURE_TEXT_MAX = { displayName: 60, tagline: 120, website: 80, handle: 40, qrUrl: 300 };
 const LOGO_EXTENSIONS = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
+/** Mêmes types et limites de volume que src/features/music/schema.ts. */
+const MUSIC_EXTENSIONS = { "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/wav": "wav" };
+const MUSIC_VOLUME_MIN = 5;
+const MUSIC_VOLUME_MAX = 100;
 
 /** Détourage validé au test local du 2026-11-23 sur la vidéo Kling : bords nets, pas de reflet vert. */
 const CHROMA_FILTER = "chromakey=0x00FF00:0.28:0.08,despill=type=green,format=yuva420p";
@@ -90,7 +95,23 @@ function parseJob(raw, renderId) {
     durationSeconds: seconds,
     signature: parseSignature(job.signature, renderId),
     background: parseBackground(job.background, renderId),
+    music: parseMusic(job.music, renderId),
   };
+}
+
+/** Valide la musique du travail ; null si aucune. La piste ne peut venir que de la copie faite pour ce rendu. */
+function parseMusic(raw, renderId) {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== "object") throw new StepError("Travail invalide", "music");
+  const extension = MUSIC_EXTENSIONS[raw.type];
+  if (!extension || raw.path !== `render-jobs/${renderId}.music.${extension}`) {
+    throw new StepError("Travail invalide", "music");
+  }
+  const volume = raw.volume;
+  if (!Number.isInteger(volume) || volume < MUSIC_VOLUME_MIN || volume > MUSIC_VOLUME_MAX) {
+    throw new StepError("Travail invalide", "music.volume");
+  }
+  return { path: raw.path, file: `music.${extension}`, volume };
 }
 
 /** Valide le fond du travail ; null si aucun. L'image ne peut venir que de la copie faite pour ce rendu. */
@@ -190,6 +211,7 @@ async function main() {
     ];
     if (job.signature?.logo) inputs.push([job.signature.logo.path, job.signature.logo.file]);
     if (job.background) inputs.push([job.background.path, job.background.file]);
+    if (job.music) inputs.push([job.music.path, job.music.file]);
     for (const [source, name] of inputs) {
       await storageStep(`Téléchargement de ${name}`, () => bucket.file(source).download({ destination: join(work, name) }));
     }
@@ -215,6 +237,7 @@ async function main() {
       alignment: `jobs/${renderId}/voice-alignment.json`,
       durationSeconds: job.durationSeconds,
       background: job.background ? `jobs/${renderId}/${job.background.file}` : null,
+      music: job.music ? { src: `jobs/${renderId}/${job.music.file}`, volume: job.music.volume / 100 } : null,
       signature: job.signature && {
         displayName: job.signature.displayName,
         tagline: job.signature.tagline,
@@ -227,7 +250,7 @@ async function main() {
     const propsFile = join(work, "props.json");
     await writeFile(propsFile, JSON.stringify(props));
 
-    log(`montage Remotion (${job.format}${job.background ? ", avec fond" : ""}${job.signature ? ", avec signature" : ""})`);
+    log(`montage Remotion (${job.format}${job.background ? ", avec fond" : ""}${job.music ? ", avec musique" : ""}${job.signature ? ", avec signature" : ""})`);
     const renderStart = Date.now();
     // Le paquet n'exporte pas son binaire : on le retrouve à partir de son package.json.
     const cli = join(dirname(createRequire(import.meta.url).resolve("@remotion/cli/package.json")), "remotion-cli.js");

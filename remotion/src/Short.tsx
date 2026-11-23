@@ -1,5 +1,5 @@
 // Montage d'une vidéo courte : fond, Chris détouré, voix, titre d'ouverture, sous-titres mot à mot
-// et, si une signature est choisie, carte de fin de SIGNATURE_SECONDS après la voix.
+// et, si une signature est choisie, carte de fin de SIGNATURE_SECONDS après la voix. Musique de fond en option.
 import { createTikTokStyleCaptions, type Caption, type TikTokPage } from "@remotion/captions";
 import { Audio, Video } from "@remotion/media";
 import { useMemo } from "react";
@@ -32,6 +32,13 @@ const COLORS = { black: "#0b0b0c", ink: "#ffffff", accent: "#ff7a1a", glow: "#3a
 
 /** Durée d'affichage du titre d'ouverture. */
 const TITLE_SECONDS = 3;
+/** Fondu d'entrée et de sortie de la musique, et montée du volume sur la signature. */
+const MUSIC_FADE_IN_FRAMES = FPS;
+const MUSIC_FADE_OUT_FRAMES = Math.round(1.5 * FPS);
+const MUSIC_RISE_FRAMES = Math.round(0.6 * FPS);
+/** Sur la signature, la musique monte à trois fois son niveau sous la voix, sans dépasser le volume d'origine. */
+const MUSIC_END_CARD_BOOST = 3;
+
 /** Mots regroupés sur une même page de sous-titres. */
 const CAPTION_PAGE_MS = 1200;
 
@@ -47,6 +54,8 @@ export type ShortProps = {
   durationSeconds: number;
   /** Image de fond (PNG, JPEG ou WebP), chemin dans public/ ou URL ; absente ou null : dégradé par défaut. */
   background?: string | null;
+  /** Musique de fond jouée en boucle ; volume sous la voix entre 0 et 1. Absente ou null : pas de musique. */
+  music?: { src: string; volume: number } | null;
   /** Carte de fin ; absente ou null : la vidéo s'arrête avec la voix. */
   signature?: EndCardSignature | null;
   /** Rempli par calculateMetadata. */
@@ -86,6 +95,21 @@ function Background({ image }: { image: string | null }) {
       style={{ background: `radial-gradient(circle at 50% 38%, ${COLORS.glow} 0%, ${COLORS.black} 62%)` }}
     />
   );
+}
+
+/**
+ * Volume de la musique à une image donnée : fondu d'entrée, niveau discret sous la voix,
+ * montée sur la signature de fin, puis fondu de sortie sur les dernières images.
+ */
+function musicVolume(frame: number, base: number, voiceEnd: number, total: number): number {
+  const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
+  const level =
+    total > voiceEnd
+      ? interpolate(frame, [voiceEnd, voiceEnd + MUSIC_RISE_FRAMES], [base, Math.min(1, base * MUSIC_END_CARD_BOOST)], clamp)
+      : base;
+  const fadeIn = interpolate(frame, [0, MUSIC_FADE_IN_FRAMES], [0, 1], clamp);
+  const fadeOut = interpolate(frame, [total - MUSIC_FADE_OUT_FRAMES, total], [1, 0], clamp);
+  return level * Math.min(fadeIn, fadeOut);
 }
 
 function Title({ text, size }: { text: string; size: number }) {
@@ -151,8 +175,18 @@ function CaptionPage({ page, top, size }: { page: TikTokPage; top: number; size:
   );
 }
 
-export function Short({ format, title, avatar, audio, durationSeconds, background = null, signature, captions = [] }: ShortProps) {
-  const { fps } = useVideoConfig();
+export function Short({
+  format,
+  title,
+  avatar,
+  audio,
+  durationSeconds,
+  background = null,
+  music = null,
+  signature,
+  captions = [],
+}: ShortProps) {
+  const { fps, durationInFrames } = useVideoConfig();
   const voiceEnd = voiceFrames(durationSeconds);
   const layout = FORMATS[format];
   const pages = useMemo(
@@ -171,6 +205,16 @@ export function Short({ format, title, avatar, audio, durationSeconds, backgroun
       <Sequence durationInFrames={voiceEnd} name="Voix">
         <Audio src={resolve(audio)} />
       </Sequence>
+      {music && (
+        <Audio
+          src={resolve(music.src)}
+          loop
+          // "extend" : l'image passée au volume continue d'avancer d'une boucle à l'autre.
+          loopVolumeCurveBehavior="extend"
+          volume={(frame) => musicVolume(frame, music.volume, voiceEnd, durationInFrames)}
+          name="Musique"
+        />
+      )}
       <Sequence durationInFrames={TITLE_SECONDS * fps} name="Titre">
         <Title text={title} size={layout.titleSize} />
       </Sequence>

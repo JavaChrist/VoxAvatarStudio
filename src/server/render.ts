@@ -10,6 +10,7 @@ import type { Project, VideoFormat } from "@/features/projects/schema";
 import { applyOverride, isEmptyOverride } from "@/features/projects/signature-override";
 import { isVoiceStale } from "@/features/projects/voice";
 import type { Background } from "@/features/backgrounds/schema";
+import { MUSIC_EXTENSIONS, type Music } from "@/features/music/schema";
 import type { Signature } from "@/features/signatures/schema";
 import { requireEnv } from "./env";
 import { adminBucket } from "./firebase-admin";
@@ -20,7 +21,7 @@ import { signedReadUrl } from "./video";
 // docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run et #list-workflow-runs-for-a-workflow
 //
 // Le dépôt est public : seul l'identifiant aléatoire du rendu part vers GitHub. Le détail du travail
-// (projet, format, titre, durée, signature de fin, fond) est écrit dans le fichier privé render-jobs/{renderId}.json du bucket.
+// (projet, format, titre, durée, signature de fin, fond, musique) est écrit dans le fichier privé render-jobs/{renderId}.json du bucket.
 
 const REPOSITORY = "JavaChrist/VoxAvatarStudio";
 const WORKFLOW_FILE = "render.yml";
@@ -97,6 +98,16 @@ async function snapshotBackground(renderId: string, background: Background): Pro
   return { path, type: background.image.contentType };
 }
 
+/** Musique choisie pour un rendu, avec son volume sous la voix en pourcentage. */
+export type RenderMusic = { music: Music; volume: number };
+
+/** Copie de la musique pour ce rendu : elle peut être supprimée pendant que le workflow tourne. */
+async function snapshotMusic(renderId: string, { music, volume }: RenderMusic): Promise<{ path: string; type: string; volume: number }> {
+  const path = `render-jobs/${renderId}.music.${MUSIC_EXTENSIONS[music.track.contentType]}`;
+  await adminBucket().file(music.track.storagePath).copy(adminBucket().file(path));
+  return { path, type: music.track.contentType, volume };
+}
+
 const resultPath = (renderId: string) => `render-jobs/${renderId}.result.json`;
 
 function githubHeaders(): HeadersInit {
@@ -126,7 +137,7 @@ async function dispatchWorkflow(renderId: string): Promise<number | null> {
 
 /**
  * Lance le rendu d'un format sur GitHub Actions (gratuit pour un dépôt public).
- * Le propriétaire du projet, de la signature et du fond doit avoir été vérifié (getProject, getSignature, getBackground) ;
+ * Le propriétaire du projet, de la signature, du fond et de la musique doit avoir été vérifié (getProject, getSignature, getBackground, getMusic) ;
  * l'appelant enregistre le résultat avec saveRender. Les réglages de signature du projet (accroche, QR code, logo)
  * sont posés sur la signature choisie ; sans signature choisie, ils sont ignorés.
  */
@@ -135,6 +146,7 @@ export async function startRender(
   format: VideoFormat,
   signature: Signature | null,
   background: Background | null,
+  music: RenderMusic | null = null,
 ): Promise<ProjectRender> {
   if (!project.formats.includes(format)) throw new RenderError("format_invalid", `format ${format} non choisi`);
   const avatar = project.avatars[format];
@@ -164,6 +176,7 @@ export async function startRender(
       durationSeconds: voice.durationSeconds,
       signature: mounted ? await snapshotSignature(renderId, mounted) : null,
       background: background ? await snapshotBackground(renderId, background) : null,
+      music: music ? await snapshotMusic(renderId, music) : null,
     };
     await adminBucket()
       .file(jobPath(renderId))
@@ -201,6 +214,9 @@ export async function startRender(
     signatureCustomized: customized,
     backgroundId: background?.id ?? null,
     backgroundName: background?.name ?? null,
+    musicId: music?.music.id ?? null,
+    musicName: music?.music.name ?? null,
+    musicVolume: music?.volume ?? null,
   };
 }
 

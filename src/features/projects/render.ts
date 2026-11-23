@@ -50,6 +50,12 @@ export interface ProjectRender {
   backgroundId?: string | null;
   /** Nom du fond au moment du lancement, pour l'affichage. */
   backgroundName?: string | null;
+  /** Musique choisie au lancement (piste copiée dans le fichier de travail), null : aucune. Absent avant l'ajout des musiques. */
+  musicId?: string | null;
+  /** Nom de la musique au moment du lancement, pour l'affichage. */
+  musicName?: string | null;
+  /** Volume de la musique sous la voix, en pourcentage. */
+  musicVolume?: number | null;
 }
 
 /** Un rendu par format déjà lancé. */
@@ -83,3 +89,11 @@ export const lastBackgroundId = (renders: ProjectRenders): string | null =>
   Object.values(renders)
     .filter((render) => render.backgroundId !== undefined)
     .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0]?.backgroundId ?? null;
+
+/** Musique et volume du dernier rendu lancé : choix proposé par défaut au prochain montage. */
+export const lastMusic = (renders: ProjectRenders): { id: string | null; volume: number | null } => {
+  const last = Object.values(renders)
+    .filter((render) => render.musicId !== undefined)
+    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))[0];
+  return { id: last?.musicId ?? null, volume: last?.musicVolume ?? null };
+};

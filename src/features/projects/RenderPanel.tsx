@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, Clock, Download, Film, LoaderCircle, Plus, RefreshCw, Scissors } from "lucide-react";
 import type { BackgroundView } from "@/features/backgrounds/schema";
+import { MUSIC_VOLUME_DEFAULT, MUSIC_VOLUME_MAX, MUSIC_VOLUME_MIN, parseMusicVolume, type MusicView } from "@/features/music/schema";
 import { formatDate } from "@/features/projects/ProjectStatusBadge";
 import {
   RENDER_ESTIMATED_MINUTES,
@@ -12,6 +13,7 @@ import {
   isRenderStale,
   isRenderStalled,
   lastBackgroundId,
+  lastMusic,
   lastSignatureId,
   type ProjectRender,
   type ProjectRenders,
@@ -41,6 +43,7 @@ const RENDER_ERRORS: Record<string, string> = {
   provider_error: "GitHub Actions ne répond pas pour le moment. Réessaie dans un instant.",
   signature_not_found: "Cette signature n'existe plus. Recharge la page et choisis-en une autre.",
   background_not_found: "Ce fond n'existe plus. Recharge la page et choisis-en un autre.",
+  music_not_found: "Cette musique n'existe plus. Recharge la page et choisis-en une autre.",
 };
 
 /** Signature proposée au montage, avec son lien de logo pour l'aperçu ; le serveur relit tout au lancement. */
@@ -48,6 +51,9 @@ export type SignatureChoice = SignatureView;
 
 /** Fond proposé au montage, avec son lien d'aperçu ; le serveur revérifie le propriétaire au lancement. */
 export type BackgroundChoice = BackgroundView;
+
+/** Musique proposée au montage, avec son lien d'écoute ; le serveur revérifie le propriétaire au lancement. */
+export type MusicChoice = MusicView;
 
 /** Intervalle de suivi tant qu'un rendu tourne (le suivi est gratuit). */
 const POLL_MS = 15_000;
@@ -86,11 +92,13 @@ interface Props {
   signatures: SignatureChoice[] | null;
   /** null : la liste n'a pas pu être chargée, le montage reste possible avec le dégradé. */
   backgrounds: BackgroundChoice[] | null;
+  /** null : la liste n'a pas pu être chargée, le montage reste possible sans musique. */
+  music: MusicChoice[] | null;
   /** Accroche, QR code et logo propres à ce projet. */
   initialOverride: SignatureOverrideView;
 }
 
-export function RenderPanel({ projectId, formats, voice, avatars, initialRenders, signatures: initialSignatures, backgrounds, initialOverride }: Props) {
+export function RenderPanel({ projectId, formats, voice, avatars, initialRenders, signatures: initialSignatures, backgrounds, music, initialOverride }: Props) {
   const router = useRouter();
   const modal = useModal();
   const [renders, setRenders] = useState<ProjectRenders>(initialRenders);
@@ -109,6 +117,12 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
     const last = lastBackgroundId(initialRenders);
     return last && backgrounds?.some((b) => b.id === last) ? last : "";
   });
+  // Par défaut, la musique et le volume du dernier rendu lancé, si la musique existe encore ; "" : aucune.
+  const [musicId, setMusicId] = useState(() => {
+    const last = lastMusic(initialRenders).id;
+    return last && music?.some((m) => m.id === last) ? last : "";
+  });
+  const [musicVolume, setMusicVolume] = useState(() => parseMusicVolume(lastMusic(initialRenders).volume) ?? MUSIC_VOLUME_DEFAULT);
   const [override, setOverride] = useState(initialOverride);
   const [overrideState, setOverrideState] = useState<OverrideState>({ dirty: false, busy: false });
   const base = signatures?.find((signature) => signature.id === signatureId) ?? null;
@@ -191,7 +205,13 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
       const response = await fetch(`/api/projects/${projectId}/render`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ format, signatureId: signatureId || null, backgroundId: backgroundId || null }),
+        body: JSON.stringify({
+          format,
+          signatureId: signatureId || null,
+          backgroundId: backgroundId || null,
+          musicId: musicId || null,
+          musicVolume,
+        }),
       });
       if (response.status === 401) return router.replace("/connexion");
       const data = await response.json().catch(() => null);
@@ -239,6 +259,15 @@ export function RenderPanel({ projectId, formats, voice, avatars, initialRenders
       </h2>
 
       <BackgroundPicker backgrounds={backgrounds} value={backgroundId} onChange={setBackgroundId} disabled={starting !== null} />
+
+      <MusicPicker
+        music={music}
+        value={musicId}
+        onChange={setMusicId}
+        volume={musicVolume}
+        onVolumeChange={setMusicVolume}
+        disabled={starting !== null}
+      />
 
       <SignaturePicker
         signatures={signatures}
@@ -431,6 +460,92 @@ function BackgroundPicker({
   );
 }
 
+function MusicPicker({
+  music,
+  value,
+  onChange,
+  volume,
+  onVolumeChange,
+  disabled,
+}: {
+  music: MusicChoice[] | null;
+  value: string;
+  onChange: (id: string) => void;
+  volume: number;
+  onVolumeChange: (volume: number) => void;
+  disabled: boolean;
+}) {
+  const manage = (
+    <Link href="/musiques" className="text-xs text-muted underline-offset-4 transition-colors duration-150 hover:text-ink hover:underline">
+      Gérer les musiques
+    </Link>
+  );
+  if (music === null) {
+    return <p className="text-xs text-muted">Musiques indisponibles pour le moment : le montage se fera sans musique.</p>;
+  }
+  if (music.length === 0) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+        <span>Musique : aucune. Importe une piste pour la jouer sous la voix de Chris.</span>
+        {manage}
+      </div>
+    );
+  }
+  const selected = music.find((track) => track.id === value) ?? null;
+  return (
+    <div className="flex flex-col gap-2">
+      <label htmlFor="render-music" className="text-sm font-medium">
+        Musique
+      </label>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <Select
+          id="render-music"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          disabled={disabled}
+          aria-describedby="render-music-hint"
+          className="max-w-xs"
+        >
+          <option value="">Aucune</option>
+          {music.map((track) => (
+            <option key={track.id} value={track.id}>
+              {track.name}
+            </option>
+          ))}
+        </Select>
+        {manage}
+      </div>
+      {selected && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <label htmlFor="render-music-volume" className="text-xs text-muted">
+            Volume sous la voix
+          </label>
+          <input
+            id="render-music-volume"
+            type="range"
+            min={MUSIC_VOLUME_MIN}
+            max={MUSIC_VOLUME_MAX}
+            step={5}
+            value={volume}
+            onChange={(event) => onVolumeChange(Number(event.target.value))}
+            disabled={disabled}
+            className="w-40 cursor-pointer accent-accent disabled:cursor-not-allowed disabled:opacity-50"
+          />
+          <span className="w-10 text-xs tabular-nums text-muted">{volume} %</span>
+          {selected.trackUrl && (
+            <audio key={selected.id} ref={quietPlayer} controls preload="none" src={selected.trackUrl} className="h-9 w-full max-w-xs">
+              <track kind="captions" />
+            </audio>
+          )}
+        </div>
+      )}
+      <p id="render-music-hint" className="text-xs text-quiet">
+        Jouée en boucle, avec une entrée et une sortie en fondu, discrète sous la voix et plus présente sur la signature de fin.
+      </p>
+    </div>
+  );
+}
+
 function SignaturePicker({
   signatures,
   value,
@@ -535,6 +650,7 @@ function RenderStatus({ render, ready, stalled, stale }: { render: ProjectRender
       {stale ? "Périmé : la vidéo de Chris a changé" : "Vidéo finale prête"}
       <span className="text-quiet">
         {render.backgroundName && ` · fond « ${render.backgroundName} »`}
+        {render.musicName && ` · musique « ${render.musicName} »${render.musicVolume ? ` (${render.musicVolume} %)` : ""}`}
         {render.signatureName &&
           ` · signature « ${render.signatureName} »${render.signatureCustomized ? " (personnalisée)" : ""}`}
         {render.sizeBytes !== null && ` · ${formatMegabytes(render.sizeBytes)}`}
