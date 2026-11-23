@@ -30,5 +30,5 @@ export default defineConfig([
       ],
     },
   },
-  globalIgnores([".next/**", "out/**", "node_modules/**", "spike/**", "Personnage/**", "next-env.d.ts"]),
+  globalIgnores([".next/**", "out/**", "node_modules/**", "spike/**", "Personnage/**", "remotion/**", "next-env.d.ts"]),
 ]);
