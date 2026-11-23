@@ -1,11 +1,14 @@
 // Rendu d'une vidéo finale à partir d'un travail déposé dans Storage, sur GitHub Actions ou en local.
 //
 // Le dépôt est public, donc les logs du workflow aussi : seul l'identifiant du rendu passe en entrée.
-// Le détail (projet, format, titre) est lu dans le fichier privé render-jobs/{RENDER_ID}.json, et ce script
-// n'affiche jamais ni chemin Storage, ni identifiant de projet, ni titre.
+// Le détail (projet, format, titre, signature) est lu dans le fichier privé render-jobs/{RENDER_ID}.json, et ce
+// script n'affiche jamais ni chemin Storage, ni identifiant de projet, ni titre, ni contenu de la signature.
 //
 // Fichier de travail (écrit par le serveur Next.js) :
-//   { "version": 1, "projectId": "...", "format": "9:16", "title": "...", "durationSeconds": 34.8 }
+//   { "version": 1, "projectId": "...", "format": "9:16", "title": "...", "durationSeconds": 34.8,
+//     "signature": null | { "displayName", "tagline", "website", "handle", "qrUrl",
+//                           "logoPath": "render-jobs/{RENDER_ID}.logo.png" | null, "logoType": "image/png" | null } }
+// Le QR code est dessiné par Remotion à partir de qrUrl ; le logo, copié par le serveur, est téléchargé ici.
 // Résultat écrit à la fin dans render-jobs/{RENDER_ID}.result.json :
 //   { "state": "done", "outputPath", "sizeBytes", "renderSeconds", "finishedAt" }
 //   { "state": "failed", "step", "finishedAt" }
@@ -27,6 +30,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FORMATS = ["9:16", "4:5", "1:1"];
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_SECONDS = 120;
+
+/** Mêmes limites que SIGNATURE_LIMITS dans l'app (src/features/signatures/schema.ts). */
+const SIGNATURE_TEXT_MAX = { displayName: 60, tagline: 120, website: 80, handle: 40, qrUrl: 300 };
+const LOGO_EXTENSIONS = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
 
 /** Détourage validé au test local du 2026-11-23 sur la vidéo Kling : bords nets, pas de reflet vert. */
 const CHROMA_FILTER = "chromakey=0x00FF00:0.28:0.08,despill=type=green,format=yuva420p";
@@ -62,7 +69,7 @@ function storageClient() {
 }
 
 /** Valide le fichier de travail : il décide de chemins d'écriture, rien n'est accepté tel quel. */
-function parseJob(raw) {
+function parseJob(raw, renderId) {
   const job = typeof raw === "object" && raw ? raw : {};
   if (job.version !== 1) throw new StepError("Travail invalide", "version");
   if (typeof job.projectId !== "string" || !/^[A-Za-z0-9]{10,40}$/.test(job.projectId)) {
@@ -74,7 +81,43 @@ function parseJob(raw) {
   if (typeof seconds !== "number" || !(seconds > 0 && seconds <= MAX_SECONDS)) {
     throw new StepError("Travail invalide", "durationSeconds");
   }
-  return { projectId: job.projectId, format: job.format, title: job.title.trim(), durationSeconds: seconds };
+  return {
+    projectId: job.projectId,
+    format: job.format,
+    title: job.title.trim(),
+    durationSeconds: seconds,
+    signature: parseSignature(job.signature, renderId),
+  };
+}
+
+/** Valide la signature du travail ; null si aucune. Le logo ne peut venir que de la copie faite pour ce rendu. */
+function parseSignature(raw, renderId) {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== "object") throw new StepError("Travail invalide", "signature");
+  const signature = {};
+  for (const [field, max] of Object.entries(SIGNATURE_TEXT_MAX)) {
+    const value = raw[field];
+    if (typeof value !== "string" || value.length > max) throw new StepError("Travail invalide", `signature.${field}`);
+    signature[field] = value.trim();
+  }
+  if (signature.qrUrl) {
+    let url;
+    try {
+      url = new URL(signature.qrUrl);
+    } catch {
+      throw new StepError("Travail invalide", "signature.qrUrl");
+    }
+    if (url.protocol !== "https:") throw new StepError("Travail invalide", "signature.qrUrl");
+  }
+  let logo = null;
+  if (raw.logoPath !== null || raw.logoType !== null) {
+    const extension = LOGO_EXTENSIONS[raw.logoType];
+    if (!extension || raw.logoPath !== `render-jobs/${renderId}.logo.${extension}`) {
+      throw new StepError("Travail invalide", "signature.logo");
+    }
+    logo = { path: raw.logoPath, file: `logo.${extension}` };
+  }
+  return { ...signature, logo };
 }
 
 /** Lance une commande sans shell ; ses erreurs restent dans les logs, elles ne contiennent que des chemins locaux. */
@@ -117,7 +160,7 @@ async function main() {
     } catch {
       throw new StepError("Travail invalide", "JSON");
     }
-    const job = parseJob(raw);
+    const job = parseJob(raw, renderId);
     const slug = job.format.replace(":", "x");
     const base = `projects/${job.projectId}`;
 
@@ -131,6 +174,7 @@ async function main() {
       [`${base}/voice.mp3`, "voice.mp3"],
       [`${base}/voice-alignment.json`, "voice-alignment.json"],
     ];
+    if (job.signature?.logo) inputs.push([job.signature.logo.path, job.signature.logo.file]);
     for (const [source, name] of inputs) {
       await storageStep(`Téléchargement de ${name}`, () => bucket.file(source).download({ destination: join(work, name) }));
     }
@@ -155,11 +199,19 @@ async function main() {
       audio: `jobs/${renderId}/voice.mp3`,
       alignment: `jobs/${renderId}/voice-alignment.json`,
       durationSeconds: job.durationSeconds,
+      signature: job.signature && {
+        displayName: job.signature.displayName,
+        tagline: job.signature.tagline,
+        website: job.signature.website,
+        handle: job.signature.handle,
+        qrUrl: job.signature.qrUrl,
+        logo: job.signature.logo ? `jobs/${renderId}/${job.signature.logo.file}` : null,
+      },
     };
     const propsFile = join(work, "props.json");
     await writeFile(propsFile, JSON.stringify(props));
 
-    log(`montage Remotion (${job.format})`);
+    log(`montage Remotion (${job.format}${job.signature ? ", avec signature" : ""})`);
     const renderStart = Date.now();
     // Le paquet n'exporte pas son binaire : on le retrouve à partir de son package.json.
     const cli = join(dirname(createRequire(import.meta.url).resolve("@remotion/cli/package.json")), "remotion-cli.js");

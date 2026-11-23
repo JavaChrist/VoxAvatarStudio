@@ -1,4 +1,5 @@
-// Montage d'une vidéo courte : fond, Chris détouré, voix, titre d'ouverture et sous-titres mot à mot.
+// Montage d'une vidéo courte : fond, Chris détouré, voix, titre d'ouverture, sous-titres mot à mot
+// et, si une signature est choisie, carte de fin de SIGNATURE_SECONDS après la voix.
 import { createTikTokStyleCaptions, type Caption, type TikTokPage } from "@remotion/captions";
 import { Audio, Video } from "@remotion/media";
 import { useMemo } from "react";
@@ -13,6 +14,7 @@ import {
   type CalculateMetadataFunction,
 } from "remotion";
 import { alignmentToCaptions, type Alignment } from "./captions";
+import { END_CARD_LAYOUTS, EndCard, SIGNATURE_SECONDS, type EndCardSignature } from "./EndCard";
 import { FONT_FAMILY } from "./fonts";
 
 export const FPS = 30;
@@ -42,11 +44,16 @@ export type ShortProps = {
   /** Alignement ElevenLabs (JSON), d'où viennent les sous-titres. */
   alignment: string;
   durationSeconds: number;
+  /** Carte de fin ; absente ou null : la vidéo s'arrête avec la voix. */
+  signature?: EndCardSignature | null;
   /** Rempli par calculateMetadata. */
   captions?: Caption[];
 };
 
 const resolve = (path: string) => (/^https?:\/\//.test(path) ? path : staticFile(path));
+
+/** Durée de la voix en images : l'avatar, l'audio et les sous-titres s'arrêtent là. */
+const voiceFrames = (durationSeconds: number) => Math.max(1, Math.ceil(durationSeconds * FPS));
 
 export const calculateShortMetadata: CalculateMetadataFunction<ShortProps> = async ({ props, abortSignal }) => {
   const response = await fetch(resolve(props.alignment), { signal: abortSignal });
@@ -57,7 +64,7 @@ export const calculateShortMetadata: CalculateMetadataFunction<ShortProps> = asy
     width,
     height,
     fps: FPS,
-    durationInFrames: Math.max(1, Math.ceil(props.durationSeconds * FPS)),
+    durationInFrames: voiceFrames(props.durationSeconds) + (props.signature ? SIGNATURE_SECONDS * FPS : 0),
     props: { ...props, captions: alignmentToCaptions(alignment) },
   };
 };
@@ -133,8 +140,9 @@ function CaptionPage({ page, top, size }: { page: TikTokPage; top: number; size:
   );
 }
 
-export function Short({ format, title, avatar, audio, captions = [] }: ShortProps) {
-  const { fps, durationInFrames } = useVideoConfig();
+export function Short({ format, title, avatar, audio, durationSeconds, signature, captions = [] }: ShortProps) {
+  const { fps } = useVideoConfig();
+  const voiceEnd = voiceFrames(durationSeconds);
   const layout = FORMATS[format];
   const pages = useMemo(
     () => createTikTokStyleCaptions({ captions, combineTokensWithinMilliseconds: CAPTION_PAGE_MS }).pages,
@@ -144,10 +152,14 @@ export function Short({ format, title, avatar, audio, captions = [] }: ShortProp
   return (
     <AbsoluteFill style={{ backgroundColor: COLORS.black }}>
       <Background />
-      <AbsoluteFill style={{ top: "auto", height: `${layout.avatarHeight * 100}%` }}>
-        <Video src={resolve(avatar)} muted objectFit="contain" style={{ width: "100%", height: "100%" }} />
-      </AbsoluteFill>
-      <Audio src={resolve(audio)} />
+      <Sequence durationInFrames={voiceEnd} name="Chris">
+        <AbsoluteFill style={{ top: "auto", height: `${layout.avatarHeight * 100}%` }}>
+          <Video src={resolve(avatar)} muted objectFit="contain" style={{ width: "100%", height: "100%" }} />
+        </AbsoluteFill>
+      </Sequence>
+      <Sequence durationInFrames={voiceEnd} name="Voix">
+        <Audio src={resolve(audio)} />
+      </Sequence>
       <Sequence durationInFrames={TITLE_SECONDS * fps} name="Titre">
         <Title text={title} size={layout.titleSize} />
       </Sequence>
@@ -156,7 +168,7 @@ export function Short({ format, title, avatar, audio, captions = [] }: ShortProp
         const next = pages[index + 1];
         // Une page reste affichée jusqu'à la suivante, sans dépasser sa propre durée de plus d'une seconde.
         const endMs = Math.min(next ? next.startMs : Infinity, page.startMs + page.durationMs + 1000);
-        const until = Math.min(durationInFrames, Math.round((endMs / 1000) * fps));
+        const until = Math.min(voiceEnd, Math.round((endMs / 1000) * fps));
         if (until <= from) return null;
         return (
           <Sequence key={page.startMs} from={from} durationInFrames={until - from} name="Sous-titre">
@@ -164,6 +176,11 @@ export function Short({ format, title, avatar, audio, captions = [] }: ShortProp
           </Sequence>
         );
       })}
+      {signature && (
+        <Sequence from={voiceEnd} durationInFrames={SIGNATURE_SECONDS * fps} name="Signature">
+          <EndCard signature={signature} layout={END_CARD_LAYOUTS[format]} />
+        </Sequence>
+      )}
     </AbsoluteFill>
   );
 }
