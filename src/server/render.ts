@@ -14,7 +14,7 @@ import { signedReadUrl } from "./video";
 
 // Rendu final sur GitHub Actions (.github/workflows/render.yml, script remotion/scripts/render-job.mjs).
 // Doc vérifiée le 2026-11-23 : docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event
-// et docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run
+// docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run et #list-workflow-runs-for-a-workflow
 //
 // Le dépôt est public : seul l'identifiant aléatoire du rendu part vers GitHub. Le détail du travail
 // (projet, format, titre, durée) est écrit dans le fichier privé render-jobs/{renderId}.json du bucket.
@@ -166,6 +166,37 @@ async function runStatus(runId: number | null): Promise<RunStatus | null> {
   }
 }
 
+/** Marge avant `submittedAt` pour la recherche : l'exécution est créée par GitHub juste après la demande. */
+const RUN_LOOKUP_MARGIN_MS = 2 * 60 * 1000;
+
+/**
+ * Retrouve l'exécution d'un rendu par son titre (`run-name: Rendu {render_id}` dans render.yml),
+ * quand l'API de lancement n'a pas renvoyé son identifiant (réponse 204). Null si pas encore visible.
+ * Doc : docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-workflow
+ */
+async function findRunId(render: ProjectRender): Promise<number | null> {
+  const since = new Date(Date.parse(render.submittedAt) - RUN_LOOKUP_MARGIN_MS).toISOString();
+  const query = new URLSearchParams({ event: "workflow_dispatch", created: `>=${since}`, per_page: "50" });
+  try {
+    const response = await fetch(
+      `${GITHUB_API}/repos/${REPOSITORY}/actions/workflows/${WORKFLOW_FILE}/runs?${query}`,
+      { headers: githubHeaders(), signal: AbortSignal.timeout(15_000), cache: "no-store" },
+    );
+    if (!response.ok) {
+      await response.body?.cancel();
+      console.warn("[render] run lookup failed", response.status);
+      return null;
+    }
+    const data = (await response.json()) as { workflow_runs?: { id?: unknown; display_title?: unknown }[] };
+    const title = `Rendu ${render.renderId}`;
+    const run = data.workflow_runs?.find((item) => item.display_title === title);
+    return typeof run?.id === "number" ? run.id : null;
+  } catch {
+    console.warn("[render] run lookup failed", "réseau");
+    return null;
+  }
+}
+
 /** Fichier de résultat écrit par render-job.mjs ; null s'il n'existe pas encore. */
 async function readResult(renderId: string): Promise<Record<string, unknown> | null> {
   const file = adminBucket().file(resultPath(renderId));
@@ -196,6 +227,9 @@ export async function refreshRender(projectId: string, render: ProjectRender): P
 
   // L'exécution d'abord, le résultat ensuite : le script écrit son résultat avant la fin de l'exécution,
   // donc une exécution terminée sans résultat signifie vraiment que le script n'a pas pu l'écrire.
+  // Sans identifiant (lancement en 204), on le cherche par le titre de l'exécution, puis on l'enregistre.
+  const foundRunId = render.runId === null ? await findRunId(render) : null;
+  if (foundRunId !== null) render = { ...render, runId: foundRunId };
   const run = await runStatus(render.runId);
   const result = await readResult(render.renderId);
 
@@ -230,7 +264,8 @@ export async function refreshRender(projectId: string, render: ProjectRender): P
     return failed(render, "Le rendu n'a pas abouti dans le délai prévu.");
   }
   if (run?.status === "in_progress" && render.state !== "running") return { ...render, state: "running" };
-  return null;
+  // Rien d'autre n'a changé, mais l'identifiant retrouvé doit être enregistré pour ne plus le chercher.
+  return foundRunId !== null ? render : null;
 }
 
 /** Nom du fichier proposé au téléchargement : `voxavatar-9x16.mp4`. */
