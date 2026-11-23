@@ -280,8 +280,12 @@ function CaptionPage({ page, top, size }: { page: TikTokPage; top: number; size:
           lineHeight: 1.15,
           whiteSpace: "pre-wrap",
           color: COLORS.ink,
+          // Fond sombre semi-transparent : les mots restent lisibles sur un décor clair (bureau en bois, fond blanc).
+          backgroundColor: "rgba(0,0,0,0.55)",
+          padding: "0.14em 0.42em 0.2em",
+          borderRadius: "0.32em",
           // Ombre plutôt que contour : -webkit-text-stroke laisse des traits entre les lettres de Geist.
-          textShadow: "0 0 6px rgba(0,0,0,0.95), 0 6px 20px rgba(0,0,0,0.85)",
+          textShadow: "0 0 6px rgba(0,0,0,0.9), 0 4px 14px rgba(0,0,0,0.6)",
           transform: `scale(${interpolate(enter, [0, 1], [0.9, 1])})`,
         }}
       >
