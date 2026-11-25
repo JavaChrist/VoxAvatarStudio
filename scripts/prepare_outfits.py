@@ -6,21 +6,23 @@ Sources live in Personnage/Tenues/<outfit name>/, one image per pose:
 The folder name is the name shown in the app. A missing pose image just means that pose is not offered.
 
 Chris is cut out locally with rembg and never redrawn, so his identity stays as in the source.
+If Windows application control blocks rembg (numba DLL), cutout_plain.py does the cut with the same model.
 Kling AI Avatar keeps the input image's aspect ratio, so each format gets its own image.
 
 Usage: python scripts/prepare_outfits.py            (needs python -m pip install "rembg[cpu]")
+       python scripts/prepare_outfits.py --missing  (only builds the outfits and poses not built yet)
 Output: characters/chris/tenues/<id>/<pose>/chris-<format>.png (+ cutout.png),
         public/characters/chris/<id>-<pose>.webp (thumbnail for the app),
         characters/chris/tenues.json (catalog read by the app and the upload script)
 """
 
+import argparse
 import json
 import re
 import unicodedata
 from pathlib import Path
 
 from PIL import Image, ImageOps
-from rembg import new_session, remove
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCES = ROOT / "Personnage" / "Tenues"
@@ -142,8 +144,37 @@ def thumbnail(cutout: Image.Image, path: Path) -> str:
     return "/" + path.relative_to(ROOT / "public").as_posix()
 
 
-def main() -> None:
+def load_cutter():
+    """Function that turns a source image into a transparent cut-out of Chris."""
+    try:
+        from rembg import new_session, remove
+    except ImportError as error:
+        from cutout_plain import PlainBackdropCutter
+
+        print(f"rembg unavailable ({str(error).splitlines()[0]}): using cutout_plain.py")
+        return PlainBackdropCutter()
     session = new_session("isnet-general-use")  # keeps fine hair and beard edges better than u2net
+    return lambda source: remove(source, session=session, alpha_matting=True)
+
+
+def built(outfit_id: str, pose: str) -> dict | None:
+    """The catalog entry of an outfit pose whose images all exist already, or None."""
+    if not CATALOG.exists():
+        return None
+    for outfit in json.loads(CATALOG.read_text(encoding="utf-8"))["outfits"]:
+        entry = outfit["poses"].get(pose) if outfit["id"] == outfit_id else None
+        if entry:
+            files = [ROOT / path for path in entry["reference_images"].values()]
+            files.append(ROOT / "public" / entry["thumbnail"].lstrip("/"))
+            return entry if all(path.exists() for path in files) else None
+    return None
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build the reference images of Chris.")
+    parser.add_argument("--missing", action="store_true", help="keep the images already built")
+    args = parser.parse_args()
+    cutter = None
     THUMBS.mkdir(parents=True, exist_ok=True)
     outfits = []
     for folder in sorted(p for p in SOURCES.iterdir() if p.is_dir()):
@@ -153,11 +184,16 @@ def main() -> None:
             source_path = folder / file_name
             if not source_path.exists():
                 continue
+            entry = built(outfit_id, pose) if args.missing else None
+            if entry:
+                poses[pose] = {**entry, "source": rel(source_path)}
+                continue
             print(f"{folder.name} / {pose}")
             out = OUT / outfit_id / pose
             out.mkdir(parents=True, exist_ok=True)
             source = Image.open(source_path).convert("RGB")
-            cutout = remove(source, session=session, alpha_matting=True)
+            cutter = cutter or load_cutter()
+            cutout = cutter(source)
             if pose == "seated":
                 # Everything under the desk edge is desk: original pixels, fully opaque. Alpha matting can
                 # fail on flat wood and shift its colours, so the cutout's own pixels are not kept there.

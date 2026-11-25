@@ -30,6 +30,15 @@
       "id": "blazer-marine",
       "name": "Blazer marine",
       "poses": {
+        "standing": {
+          "source": "Personnage/Tenues/Blazer marine/debout.png",
+          "thumbnail": "/characters/chris/blazer-marine-standing.webp",
+          "reference_images": {
+            "9:16": "characters/chris/tenues/blazer-marine/standing/chris-9x16.png",
+            "4:5": "characters/chris/tenues/blazer-marine/standing/chris-4x5.png",
+            "1:1": "characters/chris/tenues/blazer-marine/standing/chris-1x1.png"
+          }
+        },
         "seated": {
           "source": "Personnage/Tenues/Blazer marine/assis.png",
           "thumbnail": "/characters/chris/blazer-marine-seated.webp",
@@ -82,6 +91,36 @@
             "9:16": "characters/chris/tenues/sweat-vert/seated/chris-9x16.png",
             "4:5": "characters/chris/tenues/sweat-vert/seated/chris-4x5.png",
             "1:1": "characters/chris/tenues/sweat-vert/seated/chris-1x1.png"
+          }
+        }
+      }
+    },
+    {
+      "id": "t-shirt-anthracite",
+      "name": "T-shirt anthracite",
+      "poses": {
+        "standing": {
+          "source": "Personnage/Tenues/T-shirt anthracite/debout.png",
+          "thumbnail": "/characters/chris/t-shirt-anthracite-standing.webp",
+          "reference_images": {
+            "9:16": "characters/chris/tenues/t-shirt-anthracite/standing/chris-9x16.png",
+            "4:5": "characters/chris/tenues/t-shirt-anthracite/standing/chris-4x5.png",
+            "1:1": "characters/chris/tenues/t-shirt-anthracite/standing/chris-1x1.png"
+          }
+        }
+      }
+    },
+    {
+      "id": "t-shirt-gris-de-face",
+      "name": "T-shirt gris de face",
+      "poses": {
+        "standing": {
+          "source": "Personnage/Tenues/T-shirt gris de face/debout.png",
+          "thumbnail": "/characters/chris/t-shirt-gris-de-face-standing.webp",
+          "reference_images": {
+            "9:16": "characters/chris/tenues/t-shirt-gris-de-face/standing/chris-9x16.png",
+            "4:5": "characters/chris/tenues/t-shirt-gris-de-face/standing/chris-4x5.png",
+            "1:1": "characters/chris/tenues/t-shirt-gris-de-face/standing/chris-1x1.png"
           }
         }
       }

@@ -22,9 +22,12 @@ One image per outfit, pose and format: `tenues/<outfit id>/<standing|seated>/chr
 | standing | down to mid-thigh | down to the hips | down to the waist |
 | seated | desk across the bottom, empty space above the head for image cards | same | same |
 
-All are on pure green `#00FF00`. Chris's pixels are cut out locally with rembg and are never redrawn by AI.
+All are on pure green `#00FF00`. Chris's pixels are cut out locally and are never redrawn by AI.
+The cut uses rembg. When Windows application control blocks it (a `numba` DLL), `scripts/cutout_plain.py` takes over
+with the same model; it needs a plain backdrop and has only been checked on standing images.
 To add an outfit: drop `debout.png` and/or `assis.png` in a new `Personnage/Tenues/<name>/` folder, then run
-`python scripts/prepare_outfits.py` (needs `python -m pip install "rembg[cpu]"`) and `npm run upload:character`.
+`python scripts/prepare_outfits.py --missing` (needs `python -m pip install "rembg[cpu]"`) and `npm run upload:character`.
+Without `--missing`, every outfit already built is cut out again.
 A project uses one outfit and one pose; a Chris video made with another one must be generated again.
 
 ## Voice
