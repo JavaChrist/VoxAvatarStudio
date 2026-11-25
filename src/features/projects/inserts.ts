@@ -3,6 +3,19 @@
 import { detectLogoType, LOGO_EXTENSIONS, LOGO_TYPES, type LogoType } from "@/features/signatures/schema";
 import { SCRIPT_LIMITS } from "./script";
 
+/** Description envoyée pour générer une image : pré-remplie avec l'idée visuelle de la scène, donc même plafond. */
+export const IMAGE_DESCRIPTION = { min: 3, max: SCRIPT_LIMITS.visualMax } as const;
+
+/** Prix affiché d'une image générée : Nano Banana sur fal, 0,0398 $ par image (page du modèle, le 2026-11-25). */
+export const GENERATED_IMAGE_COST_LABEL = "environ 0,04 $";
+
+/** Description nettoyée (espaces regroupés), ou null si elle est absente, trop courte ou trop longue. */
+export function cleanImageDescription(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const text = raw.trim().replace(/\s+/g, " ");
+  return text.length >= IMAGE_DESCRIPTION.min && text.length <= IMAGE_DESCRIPTION.max ? text : null;
+}
+
 /** Mêmes types que les logos et les fonds (PNG, JPEG, WebP), reconnus à leurs premiers octets. */
 export const INSERT_TYPES = LOGO_TYPES;
 export type InsertType = LogoType;

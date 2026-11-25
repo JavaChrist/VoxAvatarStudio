@@ -2,13 +2,13 @@
 
 import { useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ImageIcon, ImagePlus, Images, LoaderCircle, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, ImageIcon, ImagePlus, Images, LoaderCircle, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import type { Script } from "@/features/projects/script";
 import { isVoiceStale, type Voice } from "@/features/projects/voice";
 import { buttonSecondary } from "@/ui/buttons";
 import { useModal } from "@/ui/modal/ModalProvider";
-import { checkInsertFile, fetchInserts, insertErrorMessage, removeInsert, uploadInsert } from "./inserts-api";
-import { INSERT_EXTENSIONS, INSERT_TYPES, type InsertView } from "./inserts";
+import { checkInsertFile, fetchInserts, generateInsert, insertErrorMessage, removeInsert, uploadInsert } from "./inserts-api";
+import { GENERATED_IMAGE_COST_LABEL, IMAGE_DESCRIPTION, INSERT_EXTENSIONS, INSERT_TYPES, type InsertView } from "./inserts";
 
 /** Types et extensions acceptés par le sélecteur de fichier. */
 const ACCEPT = [...INSERT_TYPES, ...Object.values(INSERT_EXTENSIONS).map((ext) => `.${ext}`), ".jpeg"].join(",");
@@ -31,7 +31,8 @@ interface Props {
 
 /**
  * Images insérées : une image par scène du script, affichée en carte flottante au-dessus de Chris pendant toute la scène.
- * Pose, remplacement et retrait sont gratuits ; l'image n'apparaît dans la vidéo qu'au prochain rendu.
+ * Envoi d'un fichier, remplacement et retrait sont gratuits ; la génération d'une image est facturée par fal et
+ * toujours confirmée. L'image n'apparaît dans la vidéo qu'au prochain rendu.
  */
 export function InsertsPanel({ projectId, script, voice, initialInserts }: Props) {
   const router = useRouter();
@@ -42,6 +43,7 @@ export function InsertsPanel({ projectId, script, voice, initialInserts }: Props
   const refreshed = useRef(false);
   const [inserts, setInserts] = useState<InsertView[] | null>(initialInserts);
   const [busyScene, setBusyScene] = useState<number | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   if (!script) {
     return (
@@ -85,6 +87,42 @@ export function InsertsPanel({ projectId, script, voice, initialInserts }: Props
       refreshed.current = false;
     } finally {
       setBusyScene(null);
+    }
+  };
+
+  /** Génération facturée : la description est relue et le prix confirmé avant tout appel. */
+  const generate = async (scene: number, visualIntent: string) => {
+    const replaced = byScene.has(scene) ? " L'image actuelle de la scène sera remplacée et supprimée définitivement." : "";
+    const description = await modal.ask({
+      title: `Générer l'image de la scène ${scene + 1}`,
+      body: `Décris ce qui doit apparaître. Le style cartoon 3D est ajouté automatiquement, sans texte ni présentateur. Coût : ${GENERATED_IMAGE_COST_LABEL}, facturé par fal.${replaced}`,
+      field: {
+        label: "Description de l'image",
+        initialValue: visualIntent,
+        minLength: IMAGE_DESCRIPTION.min,
+        maxLength: IMAGE_DESCRIPTION.max,
+        placeholder: "Un sujet concret : objet, lieu, personnes en situation",
+      },
+      confirmLabel: `Générer (${GENERATED_IMAGE_COST_LABEL})`,
+      cancelLabel: "Annuler",
+    });
+    if (description === null) return;
+    setBusyScene(scene);
+    setGenerating(true);
+    try {
+      const result = await generateInsert(projectId, scene, description);
+      if (result.ok) {
+        setInserts(result.inserts);
+        refreshed.current = false;
+        return;
+      }
+      // La réponse a pu se perdre alors que l'image est arrivée : on relit la liste avant d'annoncer l'échec.
+      const fresh = await fetchInserts(projectId);
+      if (fresh.ok) setInserts(fresh.inserts);
+      await handleError("Génération impossible", result.error);
+    } finally {
+      setBusyScene(null);
+      setGenerating(false);
     }
   };
 
@@ -144,7 +182,8 @@ export function InsertsPanel({ projectId, script, voice, initialInserts }: Props
         </h2>
         <p className="mt-2 text-sm text-muted">
           Une image par scène, affichée en carte au-dessus de Chris pendant toute la scène, avec une entrée et une sortie animées.
-          PNG, JPEG ou WebP, 10 Mo au plus. Elle apparaît dans la vidéo au prochain montage.
+          Ajoute un fichier (PNG, JPEG ou WebP, 10 Mo au plus) ou génère l&apos;image à partir d&apos;une description ({GENERATED_IMAGE_COST_LABEL}{" "}
+          par image). Elle apparaît dans la vidéo au prochain montage.
         </p>
       </div>
 
@@ -192,10 +231,25 @@ export function InsertsPanel({ projectId, script, voice, initialInserts }: Props
                     Idée visuelle : {scene.visualIntent}
                   </p>
                 )}
+                {generating && busyScene === index && (
+                  <p className="mt-1 text-xs text-accent-soft" aria-live="polite">
+                    Génération de l&apos;image en cours…
+                  </p>
+                )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {insert ? (
                   <>
+                    <button
+                      type="button"
+                      onClick={() => generate(index, scene.visualIntent)}
+                      disabled={locked || inserts === null}
+                      className={iconButton}
+                      aria-label={`Générer une nouvelle image pour la scène ${index + 1}`}
+                      title="Générer une nouvelle image"
+                    >
+                      <Sparkles className="size-4" aria-hidden />
+                    </button>
                     <button
                       type="button"
                       onClick={() => pick(index)}
@@ -218,10 +272,21 @@ export function InsertsPanel({ projectId, script, voice, initialInserts }: Props
                     </button>
                   </>
                 ) : (
-                  <button type="button" onClick={() => pick(index)} disabled={locked || inserts === null} className={buttonSecondary}>
-                    <ImagePlus className="size-4" aria-hidden />
-                    Ajouter
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => generate(index, scene.visualIntent)}
+                      disabled={locked || inserts === null}
+                      className={buttonSecondary}
+                    >
+                      <Sparkles className="size-4" aria-hidden />
+                      Générer l&apos;image
+                    </button>
+                    <button type="button" onClick={() => pick(index)} disabled={locked || inserts === null} className={buttonSecondary}>
+                      <ImagePlus className="size-4" aria-hidden />
+                      Ajouter
+                    </button>
+                  </>
                 )}
               </div>
             </li>

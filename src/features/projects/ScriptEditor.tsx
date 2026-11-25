@@ -429,7 +429,7 @@ export function ScriptEditor({ projectId, initialScript }: { projectId: string; 
                   onChange={(event) => updateScene(index, { visualIntent: event.target.value })}
                   maxLength={SCRIPT_LIMITS.visualMax}
                   disabled={disabled}
-                  placeholder="Cadrage, texte incrusté, illustration"
+                  placeholder="Illustration affichée au-dessus de Chris"
                   className={inputClass}
                 />
               </div>

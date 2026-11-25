@@ -37,7 +37,7 @@ const SCRIPT_SCHEMA = {
         type: "object",
         properties: {
           spokenText: { type: "string", description: "Texte exact que Chris prononce face caméra." },
-          visualIntent: { type: "string", description: "Ce que l'on voit à l'écran pendant la scène." },
+          visualIntent: { type: "string", description: "Sujet de l'illustration affichée au-dessus de Chris pendant la scène." },
         },
         required: ["spokenText", "visualIntent"],
         additionalProperties: false,
@@ -61,7 +61,9 @@ Règles du texte parlé (spokenText) :
 - Écris les sigles comme ils se prononcent quand c'est ambigu.
 
 Règles de l'intention visuelle (visualIntent) :
-- Une phrase courte en français : cadrage de Chris, texte incrusté éventuel, illustration ou animation.
+- Elle sert à créer une image fixe, affichée en carte au-dessus de Chris pendant la scène.
+- Une phrase courte en français qui décrit uniquement cette illustration : un sujet concret (objet, lieu, personnes en situation), facile à lire en petit.
+- Ne parle ni de Chris, ni de cadrage ou de caméra, ni de texte, de chiffres ou de logo à l'écran, ni d'animation.
 
 Longueur : respecte le nombre de mots demandé, à 10 % près. Le rythme de lecture est de ${WORDS_PER_SECOND} mots par seconde.
 

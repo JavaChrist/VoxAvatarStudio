@@ -15,6 +15,11 @@ const INSERT_ERRORS: Record<string, string> = {
   upload_failed:
     "L'envoi du fichier vers le stockage a échoué. Vérifie ta connexion ; si le problème continue, la configuration CORS du bucket est peut-être manquante.",
   render_starting: "Un rendu est en train de démarrer ou d'être suivi pour ce projet. Réessaie dans quelques secondes.",
+  image_busy: "Une autre action est en cours sur les images ou le montage de ce projet. Réessaie dans quelques instants.",
+  description_invalid: "La description de l'image est trop courte ou trop longue.",
+  image_refused: "Le modèle n'a pas produit d'image pour cette description. Reformule-la, puis réessaie.",
+  provider_busy: "Le service de génération d'images est saturé. Réessaie dans quelques minutes.",
+  provider_error: "La génération de l'image a échoué chez fal. Réessaie ; si le problème continue, vérifie ton crédit fal.",
   network: "La connexion au serveur a échoué. Vérifie ta connexion et réessaie.",
 };
 
@@ -87,7 +92,17 @@ export async function uploadInsert(projectId: string, scene: number, file: File,
   );
 }
 
-export const removeInsert = async (projectId: string, scene: number) =>
+/** Fait générer l'image de la scène par le serveur (appel facturé), qui la pose à la place de l'éventuelle précédente. */
+export const generateInsert = async (projectId: string, scene: number, description: string) =>
+  toResult(
+    await readJson(`/api/projects/${projectId}/inserts/${scene}/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description }),
+    }),
+  );
+
+export const removeInsert =async (projectId: string, scene: number) =>
   toResult(await readJson(`/api/projects/${projectId}/inserts/${scene}`, { method: "DELETE" }));
 
 /** Liste à jour, avec de nouveaux liens d'aperçu (valables 15 min). */

@@ -5,12 +5,14 @@ import {
   INSERT_EXTENSIONS,
   INSERT_MAX_BYTES,
   INSERT_SNIFF_BYTES,
+  type InsertType,
   type InsertView,
   type ProjectInsert,
   type ProjectInserts,
 } from "@/features/projects/inserts";
 import type { Project } from "@/features/projects/schema";
 import { adminBucket, adminDb } from "./firebase-admin";
+import { generateImage } from "./image-generation";
 import { getProject } from "./projects";
 import { stagedUpload } from "./uploads";
 import { signedReadUrl } from "./video";
@@ -60,14 +62,43 @@ const removeFile = (path: string) =>
     .delete({ ignoreNotFound: true })
     .catch(() => undefined);
 
+/** La scène doit exister dans le script actuel. */
+function requireScene(project: Project, scene: number) {
+  if (!project.script || scene >= project.script.scenes.length) throw new InsertError("scene_not_found");
+}
+
+/** Nom horodaté : un lien signé encore ouvert ne montre jamais un mélange de l'ancienne et de la nouvelle image. */
+const insertPath = (projectId: string, scene: number, contentType: InsertType) =>
+  `projects/${projectId}/inserts/scene-${scene}-${Date.now()}.${INSERT_EXTENSIONS[contentType]}`;
+
+/** Finit d'écrire le fichier de l'image (`prepare`), l'inscrit sur la scène, puis supprime l'image qu'elle remplace. */
+async function attachInsert(
+  uid: string,
+  project: Project,
+  scene: number,
+  image: Omit<ProjectInsert, "uploadedAt">,
+  prepare: () => Promise<unknown>,
+): Promise<Project> {
+  const previous = project.inserts[String(scene)] ?? null;
+  try {
+    await prepare();
+    const insert: ProjectInsert = { ...image, uploadedAt: new Date().toISOString() };
+    await projectRef(project.id).update(new FieldPath("inserts", String(scene)), insert, "updatedAt", FieldValue.serverTimestamp());
+  } catch (error) {
+    // Pas d'image orpheline si le projet n'a pas pu être mis à jour.
+    await removeFile(image.storagePath);
+    throw error;
+  }
+  if (previous) await removeFile(previous.storagePath);
+  return reload(uid, project.id);
+}
+
 /**
  * Pose sur la scène l'image envoyée directement dans Storage (URL signée), à la place de l'éventuelle précédente.
  * Vérifie la taille réelle et les premiers octets ; un fichier refusé est supprimé aussitôt.
- * Nom horodaté : un lien signé encore ouvert ne montre jamais un mélange de l'ancienne et de la nouvelle image.
  */
 export async function saveInsertFromUpload(uid: string, project: Project, scene: number, uploadId: unknown): Promise<Project> {
-  // La scène doit exister dans le script actuel.
-  if (!project.script || scene >= project.script.scenes.length) throw new InsertError("scene_not_found");
+  requireScene(project, scene);
 
   const staged = stagedUpload(uid, uploadId);
   if (!staged) throw new InsertError("upload_missing");
@@ -87,22 +118,27 @@ export async function saveInsertFromUpload(uid: string, project: Project, scene:
   const contentType = detectInsertType(new Uint8Array(head));
   if (!contentType) throw await reject("image_invalid");
 
-  const previous = project.inserts[String(scene)] ?? null;
-  const storagePath = `projects/${project.id}/inserts/scene-${scene}-${Date.now()}.${INSERT_EXTENSIONS[contentType]}`;
+  const storagePath = insertPath(project.id, scene, contentType);
   await staged.move(storagePath);
-  const file = adminBucket().file(storagePath);
-  try {
-    // Le type enregistré est celui reconnu dans le fichier, pas celui annoncé par le navigateur.
-    await file.setMetadata({ contentType, cacheControl: "private, max-age=0" });
-    const insert: ProjectInsert = { storagePath, contentType, sizeBytes, uploadedAt: new Date().toISOString() };
-    await projectRef(project.id).update(new FieldPath("inserts", String(scene)), insert, "updatedAt", FieldValue.serverTimestamp());
-  } catch (error) {
-    // Pas d'image orpheline si le projet n'a pas pu être mis à jour.
-    await removeFile(storagePath);
-    throw error;
-  }
-  if (previous) await removeFile(previous.storagePath);
-  return reload(uid, project.id);
+  // Le type enregistré est celui reconnu dans le fichier, pas celui annoncé par le navigateur.
+  return attachInsert(uid, project, scene, { storagePath, contentType, sizeBytes }, () =>
+    adminBucket().file(storagePath).setMetadata({ contentType, cacheControl: "private, max-age=0" }),
+  );
+}
+
+/**
+ * Génère l'image de la scène chez fal (un appel facturé) et la pose comme une image envoyée à la main.
+ * La scène est vérifiée avant l'appel, pour ne rien payer en vain.
+ */
+export async function generateInsert(uid: string, project: Project, scene: number, description: string): Promise<Project> {
+  requireScene(project, scene);
+  const { bytes, contentType } = await generateImage(description);
+  const storagePath = insertPath(project.id, scene, contentType);
+  return attachInsert(uid, project, scene, { storagePath, contentType, sizeBytes: bytes.length }, () =>
+    adminBucket()
+      .file(storagePath)
+      .save(bytes, { resumable: false, contentType, metadata: { cacheControl: "private, max-age=0" } }),
+  );
 }
 
 /** Retire l'image de la scène. Null si la scène n'avait pas d'image. */

@@ -12,26 +12,29 @@ export function ModalProvider({ children }: { children: ReactNode }) {
   const nextId = useRef(0);
 
   const api = useMemo<ModalApi>(() => {
-    const open = (variant: ModalVariant, content: ModalContent, needsChoice: boolean) =>
-      new Promise<boolean>((resolve) => {
+    const open = (variant: ModalVariant, content: ModalRequest["content"], needsChoice: boolean) =>
+      new Promise<{ confirmed: boolean; value: string }>((resolve) => {
         const id = nextId.current++;
-        setQueue((current) => [...current, { id, variant, content, needsChoice, resolve }]);
+        const settle = (confirmed: boolean, value: string) => resolve({ confirmed, value });
+        setQueue((current) => [...current, { id, variant, content, needsChoice, resolve: settle }]);
       });
     const notify = (variant: ModalVariant, content: ModalContent) => open(variant, content, false).then(() => undefined);
+    const choose = (variant: ModalVariant, content: ModalContent) => open(variant, content, true).then((reply) => reply.confirmed);
 
     return {
       info: (content) => notify("info", content),
       success: (content) => notify("success", content),
       error: (content) => notify("error", content),
-      confirm: (content) => open("confirm", content, true),
-      destructive: (content) => open("destructive", content, true),
+      confirm: (content) => choose("confirm", content),
+      destructive: (content) => choose("destructive", content),
+      ask: (content) => open("confirm", content, true).then((reply) => (reply.confirmed ? reply.value : null)),
     };
   }, []);
 
   const current = queue[0];
 
-  const handleSettled = (confirmed: boolean) => {
-    current?.resolve(confirmed);
+  const handleSettled = (confirmed: boolean, value: string) => {
+    current?.resolve(confirmed, value);
     setQueue((pending) => pending.slice(1));
   };
 

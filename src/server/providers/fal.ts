@@ -3,6 +3,7 @@ import { fal } from "@fal-ai/client";
 import { requireEnv } from "../env";
 
 export const AVATAR_ENDPOINT = "fal-ai/kling-video/ai-avatar/v2/pro";
+export const IMAGE_ENDPOINT = "fal-ai/nano-banana";
 
 let configured = false;
 
