@@ -3,7 +3,7 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ImageIcon, ImagePlus, Images, LoaderCircle, RefreshCw, Sparkles, Trash2 } from "lucide-react";
-import type { Script } from "@/features/projects/script";
+import { SHOT_LABELS, shotNeedsImage, type Script } from "@/features/projects/script";
 import { isVoiceStale, type Voice } from "@/features/projects/voice";
 import { buttonSecondary } from "@/ui/buttons";
 import { useModal } from "@/ui/modal/ModalProvider";
@@ -30,8 +30,8 @@ interface Props {
 }
 
 /**
- * Images insérées : une image par scène du script, affichée en carte flottante au-dessus de Chris pendant toute la scène.
- * Envoi d'un fichier, remplacement et retrait sont gratuits ; la génération d'une image est facturée par fal et
+ * Images insérées : une image par scène du script, montrée selon le plan de la scène (carte au-dessus de Chris ou plein
+ * écran). Envoi d'un fichier, remplacement et retrait sont gratuits ; la génération d'une image est facturée par fal et
  * toujours confirmée. L'image n'apparaît dans la vidéo qu'au prochain rendu.
  */
 export function InsertsPanel({ projectId, script, voice, initialInserts }: Props) {
@@ -93,9 +93,13 @@ export function InsertsPanel({ projectId, script, voice, initialInserts }: Props
   /** Génération facturée : la description est relue et le prix confirmé avant tout appel. */
   const generate = async (scene: number, visualIntent: string) => {
     const replaced = byScene.has(scene) ? " L'image actuelle de la scène sera remplacée et supprimée définitivement." : "";
+    const framing =
+      script.scenes[scene]?.shot === "image_close"
+        ? " Plan « Gros plan sur l'image » : elle est créée au format de la vidéo, pour remplir l'écran."
+        : "";
     const description = await modal.ask({
       title: `Générer l'image de la scène ${scene + 1}`,
-      body: `Décris ce qui doit apparaître. Le style cartoon 3D est ajouté automatiquement, sans texte ni présentateur. Coût : ${GENERATED_IMAGE_COST_LABEL}, facturé par fal.${replaced}`,
+      body: `Décris ce qui doit apparaître. Le style cartoon 3D est ajouté automatiquement, sans texte ni présentateur.${framing} Coût : ${GENERATED_IMAGE_COST_LABEL}, facturé par fal.${replaced}`,
       field: {
         label: "Description de l'image",
         initialValue: visualIntent,
@@ -181,9 +185,10 @@ export function InsertsPanel({ projectId, script, voice, initialInserts }: Props
           Images
         </h2>
         <p className="mt-2 text-sm text-muted">
-          Une image par scène, affichée en carte au-dessus de Chris pendant toute la scène, avec une entrée et une sortie animées.
-          Ajoute un fichier (PNG, JPEG ou WebP, 10 Mo au plus) ou génère l&apos;image à partir d&apos;une description ({GENERATED_IMAGE_COST_LABEL}{" "}
-          par image). Elle apparaît dans la vidéo au prochain montage.
+          Une image par scène. Le plan de la scène, choisi dans le script, dit comment elle apparaît : en carte au-dessus de Chris, ou en
+          grand à sa place. Ajoute un fichier (PNG, JPEG ou WebP, 10 Mo au plus) ou génère l&apos;image à partir d&apos;une description (
+          {GENERATED_IMAGE_COST_LABEL} par image). Pour un gros plan, l&apos;image générée est au format de la vidéo ; une image d&apos;une
+          autre forme est montrée entière sur un fond flou. Tout apparaît au prochain montage.
         </p>
       </div>
 
@@ -212,6 +217,7 @@ export function InsertsPanel({ projectId, script, voice, initialInserts }: Props
               <div className="min-w-0 flex-1">
                 <p className="flex flex-wrap items-baseline gap-x-2 text-xs text-quiet">
                   <span className="font-medium text-ink">Scène {index + 1}</span>
+                  <span>{scene.shot ? SHOT_LABELS[scene.shot] : "Plan automatique"}</span>
                   {timing && (
                     <span className="tabular-nums">
                       {formatSeconds(timing.start)} → {formatSeconds(timing.end)}
@@ -230,6 +236,15 @@ export function InsertsPanel({ projectId, script, voice, initialInserts }: Props
                   <p className="mt-1 line-clamp-2 text-xs text-quiet" title={scene.visualIntent}>
                     Idée visuelle : {scene.visualIntent}
                   </p>
+                )}
+                {!insert && inserts !== null && shotNeedsImage(scene.shot) && (
+                  <p className="mt-1 flex items-start gap-1.5 text-xs text-danger">
+                    <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
+                    Aucune image : Chris restera en cadrage normal.
+                  </p>
+                )}
+                {insert && scene.shot && !shotNeedsImage(scene.shot) && (
+                  <p className="mt-1 text-xs text-quiet">Ce plan ne montre pas l&apos;image.</p>
                 )}
                 {generating && busyScene === index && (
                   <p className="mt-1 text-xs text-accent-soft" aria-live="polite">

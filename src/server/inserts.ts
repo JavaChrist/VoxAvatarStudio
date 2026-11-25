@@ -10,9 +10,9 @@ import {
   type ProjectInsert,
   type ProjectInserts,
 } from "@/features/projects/inserts";
-import type { Project } from "@/features/projects/schema";
+import { VIDEO_FORMATS, type Project } from "@/features/projects/schema";
 import { adminBucket, adminDb } from "./firebase-admin";
-import { generateImage } from "./image-generation";
+import { generateImage, type ImageRatio } from "./image-generation";
 import { getProject } from "./projects";
 import { stagedUpload } from "./uploads";
 import { signedReadUrl } from "./video";
@@ -126,13 +126,19 @@ export async function saveInsertFromUpload(uid: string, project: Project, scene:
   );
 }
 
+/** Un gros plan sur l'image remplit l'écran : elle est créée au format le plus haut du projet. Sinon, 4:3 pour la carte. */
+function imageRatio(project: Project, scene: number): ImageRatio {
+  if (project.script?.scenes[scene]?.shot !== "image_close") return "4:3";
+  return VIDEO_FORMATS.find((format) => project.formats.includes(format)) ?? "9:16";
+}
+
 /**
  * Génère l'image de la scène chez fal (un appel facturé) et la pose comme une image envoyée à la main.
  * La scène est vérifiée avant l'appel, pour ne rien payer en vain.
  */
 export async function generateInsert(uid: string, project: Project, scene: number, description: string): Promise<Project> {
   requireScene(project, scene);
-  const { bytes, contentType } = await generateImage(description);
+  const { bytes, contentType } = await generateImage(description, imageRatio(project, scene));
   const storagePath = insertPath(project.id, scene, contentType);
   return attachInsert(uid, project, scene, { storagePath, contentType, sizeBytes: bytes.length }, () =>
     adminBucket()

@@ -11,9 +11,11 @@
 //                           "logoPath": "render-jobs/{RENDER_ID}.logo.png" | null, "logoType": "image/png" | null },
 //     "background": null | { "path": "render-jobs/{RENDER_ID}.background.jpg", "type": "image/jpeg" },
 //     "music": null | { "path": "render-jobs/{RENDER_ID}.music.mp3", "type": "audio/mpeg", "volume": 15 },
-//     "inserts": [{ "scene": 0, "path": "render-jobs/{RENDER_ID}.insert-0.png", "type": "image/png", "start": 0, "end": 6.8 }] }
+//     "inserts": [{ "scene": 0, "path": "render-jobs/{RENDER_ID}.insert-0.png", "type": "image/png", "start": 0, "end": 6.8 }],
+//     "shots": [{ "scene": 0, "shot": "chris" | "chris_close" | "chris_image" | "image_close", "start": 0, "end": 7 }] }
 // Le QR code est dessiné par Remotion à partir de qrUrl ; le logo et le fond, copiés par le serveur, sont téléchargés ici.
-// "pose", "background", "music" et "inserts" peuvent manquer dans les travaux plus anciens : Chris debout, dégradé par défaut, ni musique ni image.
+// "pose", "background", "music", "inserts" et "shots" peuvent manquer dans les travaux plus anciens : Chris debout, dégradé
+// par défaut, ni musique ni image, cadrage automatique. Une scène absente de "shots" garde le cadrage automatique.
 // Résultat écrit à la fin dans render-jobs/{RENDER_ID}.result.json :
 //   { "state": "done", "outputPath", "sizeBytes", "renderSeconds", "finishedAt" }
 //   { "state": "failed", "step", "finishedAt" }
@@ -45,8 +47,10 @@ const LOGO_EXTENSIONS = { "image/png": "png", "image/jpeg": "jpg", "image/webp":
 const MUSIC_EXTENSIONS = { "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/wav": "wav" };
 const MUSIC_VOLUME_MIN = 5;
 const MUSIC_VOLUME_MAX = 100;
-/** Même limite que SCRIPT_LIMITS.scenesMax dans l'app : une image au plus par scène. */
-const INSERTS_MAX = 12;
+/** Même limite que SCRIPT_LIMITS.scenesMax dans l'app : au plus une image et un plan par scène. */
+const SCENES_MAX = 12;
+/** Mêmes plans que SHOTS dans l'app (src/features/projects/script.ts). */
+const SHOTS = ["chris", "chris_close", "chris_image", "image_close"];
 
 /** Détourage validé au test local du 2026-11-23 sur la vidéo Kling : bords nets, pas de reflet vert. */
 const CHROMA_FILTER = "chromakey=0x00FF00:0.28:0.08,despill=type=green,format=yuva420p";
@@ -107,18 +111,19 @@ function parseJob(raw, renderId) {
     background: parseBackground(job.background, renderId),
     music: parseMusic(job.music, renderId),
     inserts: parseInserts(job.inserts, renderId, seconds),
+    shots: parseShots(job.shots, seconds),
   };
 }
 
 /** Valide les images insérées ; liste vide si aucune. Chaque image ne peut venir que de la copie faite pour ce rendu. */
 function parseInserts(raw, renderId, durationSeconds) {
   if (raw === null || raw === undefined) return [];
-  if (!Array.isArray(raw) || raw.length > INSERTS_MAX) throw new StepError("Travail invalide", "inserts");
+  if (!Array.isArray(raw) || raw.length > SCENES_MAX) throw new StepError("Travail invalide", "inserts");
   const seen = new Set();
   return raw.map((item) => {
     if (typeof item !== "object" || item === null) throw new StepError("Travail invalide", "inserts");
     const { scene, type, path, start, end } = item;
-    if (!Number.isInteger(scene) || scene < 0 || scene >= INSERTS_MAX || seen.has(scene)) {
+    if (!Number.isInteger(scene) || scene < 0 || scene >= SCENES_MAX || seen.has(scene)) {
       throw new StepError("Travail invalide", "inserts.scene");
     }
     seen.add(scene);
@@ -130,6 +135,26 @@ function parseInserts(raw, renderId, durationSeconds) {
       throw new StepError("Travail invalide", "inserts.timing");
     }
     return { scene, path, file: `insert-${scene}.${extension}`, start, end: Math.min(end, durationSeconds) };
+  });
+}
+
+/** Valide les plans des scènes ; liste vide si aucun. */
+function parseShots(raw, durationSeconds) {
+  if (raw === null || raw === undefined) return [];
+  if (!Array.isArray(raw) || raw.length > SCENES_MAX) throw new StepError("Travail invalide", "shots");
+  const seen = new Set();
+  return raw.map((item) => {
+    if (typeof item !== "object" || item === null) throw new StepError("Travail invalide", "shots");
+    const { scene, shot, start, end } = item;
+    if (!Number.isInteger(scene) || scene < 0 || scene >= SCENES_MAX || seen.has(scene)) {
+      throw new StepError("Travail invalide", "shots.scene");
+    }
+    seen.add(scene);
+    if (!SHOTS.includes(shot)) throw new StepError("Travail invalide", "shots.shot");
+    if (typeof start !== "number" || typeof end !== "number" || !(start >= 0 && end > start && start < durationSeconds)) {
+      throw new StepError("Travail invalide", "shots.timing");
+    }
+    return { scene, shot, start, end: Math.min(end, durationSeconds) };
   });
 }
 
@@ -274,7 +299,8 @@ async function main() {
       pose: job.pose,
       background: job.background ? `jobs/${renderId}/${job.background.file}` : null,
       music: job.music ? { src: `jobs/${renderId}/${job.music.file}`, volume: job.music.volume / 100 } : null,
-      inserts: job.inserts.map((insert) => ({ src: `jobs/${renderId}/${insert.file}`, start: insert.start, end: insert.end })),
+      inserts: job.inserts.map(({ scene, file, start, end }) => ({ scene, src: `jobs/${renderId}/${file}`, start, end })),
+      shots: job.shots,
       signature: job.signature && {
         displayName: job.signature.displayName,
         tagline: job.signature.tagline,
@@ -287,7 +313,7 @@ async function main() {
     const propsFile = join(work, "props.json");
     await writeFile(propsFile, JSON.stringify(props));
 
-    log(`montage Remotion (${job.format}${job.background ? ", avec fond" : ""}${job.music ? ", avec musique" : ""}${job.inserts.length ? `, ${job.inserts.length} image(s)` : ""}${job.signature ? ", avec signature" : ""})`);
+    log(`montage Remotion (${job.format}${job.background ? ", avec fond" : ""}${job.music ? ", avec musique" : ""}${job.inserts.length ? `, ${job.inserts.length} image(s)` : ""}${job.shots.length ? `, ${job.shots.length} plan(s)` : ""}${job.signature ? ", avec signature" : ""})`);
     const renderStart = Date.now();
     // Le paquet n'exporte pas son binaire : on le retrouve à partir de son package.json.
     const cli = join(dirname(createRequire(import.meta.url).resolve("@remotion/cli/package.json")), "remotion-cli.js");

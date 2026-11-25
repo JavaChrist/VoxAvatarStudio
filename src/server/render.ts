@@ -7,6 +7,7 @@ import {
   type ProjectRender,
 } from "@/features/projects/render";
 import type { Project, VideoFormat } from "@/features/projects/schema";
+import type { Shot } from "@/features/projects/script";
 import { applyOverride, isEmptyOverride } from "@/features/projects/signature-override";
 import { INSERT_EXTENSIONS } from "@/features/projects/inserts";
 import { avatarAppearance, isAvatarOtherAppearance } from "@/features/projects/video";
@@ -23,7 +24,8 @@ import { signedReadUrl } from "./video";
 // docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run et #list-workflow-runs-for-a-workflow
 //
 // Le dépôt est public : seul l'identifiant aléatoire du rendu part vers GitHub. Le détail du travail
-// (projet, format, titre, durée, pose de Chris, signature de fin, fond, musique, images insérées) est écrit dans le fichier privé render-jobs/{renderId}.json du bucket.
+// (projet, format, titre, durée, pose de Chris, signature de fin, fond, musique, images insérées, plans des scènes) est écrit
+// dans le fichier privé render-jobs/{renderId}.json du bucket.
 
 const REPOSITORY = "JavaChrist/VoxAvatarStudio";
 const WORKFLOW_FILE = "render.yml";
@@ -134,6 +136,23 @@ async function snapshotInserts(renderId: string, project: Project, voice: Voice)
   );
 }
 
+/** Plan choisi pour une scène, avec les secondes pendant lesquelles il tient l'écran. */
+type RenderShot = { scene: number; shot: Shot; start: number; end: number };
+
+/**
+ * Plans des scènes qui en ont un. Un plan tient du début de sa scène au début de la suivante (la première dès 0, la
+ * dernière jusqu'à la fin de la voix) : le cadrage ne change pas pendant le silence entre deux scènes.
+ */
+function renderShots(project: Project, voice: Voice): RenderShot[] {
+  const scenes = (project.script?.scenes ?? []).slice(0, voice.scenes.length);
+  return scenes.flatMap(({ shot }, scene) => {
+    if (!shot) return [];
+    const start = scene === 0 ? 0 : voice.scenes[scene]!.start;
+    const end = scene === scenes.length - 1 ? voice.durationSeconds : voice.scenes[scene + 1]!.start;
+    return end > start ? [{ scene, shot, start, end }] : [];
+  });
+}
+
 const resultPath = (renderId: string) => `render-jobs/${renderId}.result.json`;
 
 function githubHeaders(): HeadersInit {
@@ -208,6 +227,7 @@ export async function startRender(
       background: background ? await snapshotBackground(renderId, background) : null,
       music: music ? await snapshotMusic(renderId, music) : null,
       inserts: await snapshotInserts(renderId, project, voice),
+      shots: renderShots(project, voice),
     };
     await adminBucket()
       .file(jobPath(renderId))

@@ -1,9 +1,10 @@
 // Montage d'une vidéo courte : fond, Chris détouré, voix, titre d'ouverture, sous-titres mot à mot
 // et, si une signature est choisie, carte de fin de SIGNATURE_SECONDS après la voix. Musique de fond en option.
 // Images insérées en option : une carte flottante en haut pendant toute sa scène ; Chris rétrécit vers le bas pour lui laisser la place.
+// Plans en option, par scène, avec coupes franches : Chris seul, gros plan sur Chris, carte d'image ou image en plein écran.
 import { createTikTokStyleCaptions, type Caption, type TikTokPage } from "@remotion/captions";
 import { Audio, Video } from "@remotion/media";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   AbsoluteFill,
   Easing,
@@ -45,7 +46,28 @@ const SEATED_LAYOUTS: Record<Format, { avatarHeight: number; captionTop: number;
   "1:1": { avatarHeight: 1, captionTop: 0.88, insertTop: 0.04, insertHeight: 0.2 },
 };
 
+/** Gros plan sur Chris : le fond et Chris sont agrandis ensemble, puis zooment lentement. */
+const CLOSE_UP_SCALE = 1.4;
+const CLOSE_UP_ZOOM = 0.04;
+/** Sommet de la tête sur les images de référence de Chris, en fraction de leur hauteur. */
+const STANDING_HEAD_TOP = 0.072;
+const SEATED_HEAD_TOP: Record<Format, number> = { "9:16": 0.4, "4:5": 0.34, "1:1": 0.26 };
+/** Hauteur où le gros plan place le sommet de la tête : sous le titre d'ouverture. */
+const CLOSE_UP_HEAD_TOP: Record<Format, number> = { "9:16": 0.18, "4:5": 0.19, "1:1": 0.21 };
+
+/** Image en plein écran : au-delà de cette part rognée, elle est montrée entière sur une copie floue d'elle-même. */
+const FULL_IMAGE_MAX_CROP = 0.1;
+const FULL_IMAGE_ZOOM = 0.05;
+/** Image entière : largeur maximale, et haut de sa zone (plus bas sous le titre d'ouverture). */
+const FULL_IMAGE_WIDTH = 0.92;
+const FULL_IMAGE_TOP = 0.06;
+const FULL_IMAGE_TOP_UNDER_TITLE = 0.2;
+
 const COLORS = { black: "#0b0b0c", ink: "#ffffff", accent: "#ff7a1a", glow: "#3a1d08" };
+
+/** Sous-titres : marge sous eux, et hauteur d'un sous-titre de deux lignes avec son fond (en tailles de police). */
+const CAPTION_BOTTOM = 0.025;
+const CAPTION_TWO_LINES = 2.64;
 
 /** Durée d'affichage du titre d'ouverture. */
 const TITLE_SECONDS = 3;
@@ -97,12 +119,33 @@ function avatarScale(frame: number, windows: Window[]): number {
   return scale;
 }
 
-function Avatar({ src, height, windows }: { src: string; height: number; windows: Window[] }) {
+const windowAt = (frame: number, windows: Window[]) => windows.find(({ from, until }) => frame >= from && frame < until);
+
+/** Point fixe de l'agrandissement (fraction de la hauteur) qui amène le sommet de la tête à CLOSE_UP_HEAD_TOP. */
+function closeUpOrigin(format: Format, pose: Pose, avatarHeight: number): number {
+  const head = pose === "seated" ? SEATED_HEAD_TOP[format] : 1 - avatarHeight * (1 - STANDING_HEAD_TOP);
+  return (CLOSE_UP_SCALE * head - CLOSE_UP_HEAD_TOP[format]) / (CLOSE_UP_SCALE - 1);
+}
+
+/** Décor et Chris : cadrage normal, ou agrandi pendant les gros plans sur Chris. */
+function Stage({ closeUps, originY, children }: { closeUps: Window[]; originY: number; children: ReactNode }) {
   const frame = useCurrentFrame();
+  const closeUp = windowAt(frame, closeUps);
+  if (!closeUp) return <AbsoluteFill>{children}</AbsoluteFill>;
+  const zoom = interpolate(frame, [closeUp.from, closeUp.until], [1, 1 + CLOSE_UP_ZOOM]);
   return (
-    <AbsoluteFill
-      style={{ top: "auto", height: `${height * 100}%`, transform: `scale(${avatarScale(frame, windows)})`, transformOrigin: "50% 100%" }}
-    >
+    <AbsoluteFill style={{ transform: `scale(${CLOSE_UP_SCALE * zoom})`, transformOrigin: `50% ${originY * 100}%` }}>
+      {children}
+    </AbsoluteFill>
+  );
+}
+
+function Avatar({ src, height, windows, closeUps }: { src: string; height: number; windows: Window[]; closeUps: Window[] }) {
+  const frame = useCurrentFrame();
+  // En gros plan, Chris garde sa taille : une carte voisine ne le fait pas rétrécir.
+  const scale = windowAt(frame, closeUps) ? 1 : avatarScale(frame, windows);
+  return (
+    <AbsoluteFill style={{ top: "auto", height: `${height * 100}%`, transform: `scale(${scale})`, transformOrigin: "50% 100%" }}>
       <Video src={src} muted objectFit="contain" style={{ width: "100%", height: "100%" }} />
     </AbsoluteFill>
   );
@@ -129,13 +172,18 @@ export type ShortProps = {
   pose?: Pose;
   /** Images des scènes, avec le minutage de la scène dans la voix (secondes). Dimensions remplies par calculateMetadata. */
   inserts?: ShortInsert[];
+  /** Plans choisis ; une scène absente garde le cadrage automatique (carte si elle a une image). */
+  shots?: ShortShot[];
   /** Carte de fin ; absente ou null : la vidéo s'arrête avec la voix. */
   signature?: EndCardSignature | null;
   /** Rempli par calculateMetadata. */
   captions?: Caption[];
 };
 
-export type ShortInsert = { src: string; start: number; end: number; width?: number; height?: number };
+export type ShortInsert = { scene?: number; src: string; start: number; end: number; width?: number; height?: number };
+
+/** Mêmes plans que l'app ; start et end (secondes) couvrent la scène jusqu'au début de la suivante. */
+export type ShortShot = { scene: number; shot: "chris" | "chris_close" | "chris_image" | "image_close"; start: number; end: number };
 
 const resolve = (path: string) => (/^https?:\/\//.test(path) ? path : staticFile(path));
 
@@ -232,6 +280,66 @@ function InsertCard({ src, width, height, box }: { src: string; width: number; h
   );
 }
 
+/**
+ * Image d'une scène en grand, à la place de Chris. Si ses proportions sont proches de celles de la vidéo, elle remplit
+ * l'écran ; sinon elle est montrée entière au-dessus des sous-titres, sur une copie floue et assombrie d'elle-même.
+ */
+function FullImage({
+  src,
+  width,
+  height,
+  captionTop,
+  titleFrames,
+}: {
+  src: string;
+  width: number;
+  height: number;
+  captionTop: number;
+  /** Images pendant lesquelles le titre d'ouverture est encore affiché au début de ce plan. */
+  titleFrames: number;
+}) {
+  const frame = useCurrentFrame();
+  const { durationInFrames, width: screenWidth, height: screenHeight, fps } = useVideoConfig();
+  const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
+  const zoom = interpolate(frame, [0, durationInFrames], [1, 1 + FULL_IMAGE_ZOOM], clamp);
+  const ratio = width / height / (screenWidth / screenHeight);
+  const fills = 1 - Math.min(ratio, 1 / ratio) <= FULL_IMAGE_MAX_CROP;
+  const cover = { width: "100%", height: "100%", objectFit: "cover" } as const;
+  // Voile sombre en haut, pour que le titre reste lisible sur une image claire.
+  const veil = titleFrames > 0 ? interpolate(frame, [titleFrames - 0.4 * fps, titleFrames], [1, 0], clamp) : 0;
+  const top = (titleFrames > 0 ? FULL_IMAGE_TOP_UNDER_TITLE : FULL_IMAGE_TOP) * screenHeight;
+  const boxHeight = (captionTop - 0.02) * screenHeight - top;
+  const scale = Math.min((FULL_IMAGE_WIDTH * screenWidth) / width, boxHeight / height);
+
+  return (
+    <AbsoluteFill style={{ backgroundColor: COLORS.black, overflow: "hidden" }}>
+      {fills ? (
+        <Img src={src} style={{ ...cover, transform: `scale(${zoom})` }} />
+      ) : (
+        <>
+          <Img src={src} style={{ ...cover, filter: "blur(40px) brightness(0.5)", transform: "scale(1.15)" }} />
+          <AbsoluteFill style={{ top, height: boxHeight, bottom: "auto", alignItems: "center", justifyContent: "center" }}>
+            <div
+              style={{
+                width: Math.round(width * scale),
+                height: Math.round(height * scale),
+                borderRadius: 28,
+                overflow: "hidden",
+                boxShadow: "0 24px 64px rgba(0,0,0,0.55)",
+              }}
+            >
+              <Img src={src} style={{ ...cover, transform: `scale(${zoom})` }} />
+            </div>
+          </AbsoluteFill>
+        </>
+      )}
+      {veil > 0 && (
+        <AbsoluteFill style={{ opacity: veil, background: "linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0) 36%)" }} />
+      )}
+    </AbsoluteFill>
+  );
+}
+
 function Title({ text, size }: { text: string; size: number }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -262,16 +370,22 @@ function Title({ text, size }: { text: string; size: number }) {
   );
 }
 
+/**
+ * Sous-titre placé à la hauteur `top`. S'il est trop haut pour tenir entre elle et la marge basse (deux lignes sur
+ * Chris assis), il remonte au lieu d'être coupé : la cale au-dessus de lui rétrécit.
+ */
 function CaptionPage({ page, top, size }: { page: TikTokPage; top: number; size: number }) {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, height } = useVideoConfig();
   // Temps absolu en ms : la Sequence démarre au début de la page.
   const nowMs = page.startMs + (frame / fps) * 1000;
   const enter = spring({ frame, fps, config: { damping: 200 }, durationInFrames: 6 });
   return (
-    <AbsoluteFill style={{ alignItems: "center", top: `${top * 100}%`, bottom: "auto" }}>
+    <AbsoluteFill style={{ alignItems: "center", height: "auto", bottom: `${CAPTION_BOTTOM * 100}%` }}>
+      <div style={{ flex: `0 1 ${Math.round(top * height)}px` }} />
       <div
         style={{
+          flexShrink: 0,
           maxWidth: "88%",
           textAlign: "center",
           fontFamily: FONT_FAMILY,
@@ -308,6 +422,7 @@ export function Short({
   background = null,
   music = null,
   inserts = [],
+  shots = [],
   pose = "standing",
   signature,
   captions = [],
@@ -320,13 +435,27 @@ export function Short({
     () => createTikTokStyleCaptions({ captions, combineTokensWithinMilliseconds: CAPTION_PAGE_MS }).pages,
     [captions],
   );
-  // Cartes montées : celles qui ont une taille connue et assez de temps à l'écran.
+  // Cartes montées : plan automatique ou « Chris + image », taille connue et assez de temps à l'écran.
+  const shotOf = new Map(shots.map(({ scene, shot }) => [scene, shot]));
   const cards = inserts.flatMap((insert) => {
-    if (!insert.width || !insert.height) return [];
+    const shot = insert.scene === undefined ? undefined : shotOf.get(insert.scene);
+    if ((shot && shot !== "chris_image") || !insert.width || !insert.height) return [];
     // La carte attend la fin du titre d'ouverture, qui occupe le haut de l'image.
     const from = Math.max(Math.round(insert.start * fps), TITLE_SECONDS * fps);
     const until = Math.min(voiceEnd, Math.round(insert.end * fps));
     return until - from < INSERT_MIN_FRAMES ? [] : [{ src: insert.src, width: insert.width, height: insert.height, from, until }];
+  });
+  // Images où chaque plan tient l'écran ; le dernier va jusqu'à la fin de la voix, sans image oubliée avant la signature.
+  const timed = shots.flatMap((shot) => {
+    const from = Math.round(shot.start * fps);
+    const until = shot.end >= durationSeconds ? voiceEnd : Math.min(voiceEnd, Math.round(shot.end * fps));
+    return until > from ? [{ ...shot, from, until }] : [];
+  });
+  const closeUps = timed.filter(({ shot }) => shot === "chris_close");
+  // Sans image sur la scène, « Gros plan sur l'image » laisse Chris en cadrage normal.
+  const fullImages = timed.flatMap(({ scene, shot, from, until }) => {
+    const image = shot === "image_close" ? inserts.find((insert) => insert.scene === scene) : undefined;
+    return image?.width && image.height ? [{ src: image.src, width: image.width, height: image.height, from, until }] : [];
   });
   const box = {
     top: Math.round(layout.insertTop * layout.height),
@@ -336,10 +465,12 @@ export function Short({
 
   return (
     <AbsoluteFill style={{ backgroundColor: COLORS.black }}>
-      <Background image={background} />
-      <Sequence durationInFrames={voiceEnd} name="Chris">
-        <Avatar src={resolve(avatar)} height={layout.avatarHeight} windows={seated ? [] : shrinkWindows(cards)} />
-      </Sequence>
+      <Stage closeUps={closeUps} originY={closeUpOrigin(format, pose, layout.avatarHeight)}>
+        <Background image={background} />
+        <Sequence durationInFrames={voiceEnd} name="Chris">
+          <Avatar src={resolve(avatar)} height={layout.avatarHeight} windows={seated ? [] : shrinkWindows(cards)} closeUps={closeUps} />
+        </Sequence>
+      </Stage>
       <Sequence durationInFrames={voiceEnd} name="Voix">
         <Audio src={resolve(audio)} />
       </Sequence>
@@ -356,6 +487,17 @@ export function Short({
       {cards.map((card) => (
         <Sequence key={card.src} from={card.from} durationInFrames={card.until - card.from} name="Image">
           <InsertCard src={resolve(card.src)} width={card.width} height={card.height} box={box} />
+        </Sequence>
+      ))}
+      {fullImages.map((image) => (
+        <Sequence key={image.src} from={image.from} durationInFrames={image.until - image.from} name="Gros plan image">
+          <FullImage
+            src={resolve(image.src)}
+            width={image.width}
+            height={image.height}
+            captionTop={Math.min(layout.captionTop, 1 - CAPTION_BOTTOM - (layout.captionSize * CAPTION_TWO_LINES) / layout.height)}
+            titleFrames={Math.max(0, TITLE_SECONDS * fps - image.from)}
+          />
         </Sequence>
       ))}
       <Sequence durationInFrames={TITLE_SECONDS * fps} name="Titre">

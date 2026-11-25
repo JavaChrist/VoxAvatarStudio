@@ -1,11 +1,29 @@
 // Script d'une vidéo : scènes parlées par Chris. Partagé entre le serveur et le navigateur : aucun secret ici.
 import { WORDS_PER_SECOND } from "./schema";
 
+/** Plans possibles d'une scène au montage. */
+export const SHOTS = ["chris", "chris_close", "chris_image", "image_close"] as const;
+export type Shot = (typeof SHOTS)[number];
+
+export const SHOT_LABELS: Record<Shot, string> = {
+  chris: "Chris",
+  chris_close: "Gros plan sur Chris",
+  chris_image: "Chris + image",
+  image_close: "Gros plan sur l'image",
+};
+
+export const isShot = (value: unknown): value is Shot => (SHOTS as readonly unknown[]).includes(value);
+
+/** Plans qui ne peuvent pas être montés sans image : sans elle, Chris reste en cadrage normal. */
+export const shotNeedsImage = (shot: Shot | undefined) => shot === "chris_image" || shot === "image_close";
+
 export interface Scene {
   /** Texte prononcé par Chris, tel quel (sans indication de mise en scène). */
   spokenText: string;
-  /** Ce qu'on voit à l'écran pendant la scène (plan, texte incrusté, illustration). */
+  /** Description de l'illustration de la scène (sert à générer l'image). */
   visualIntent: string;
+  /** Plan choisi ; absent = automatique (image en carte au-dessus de Chris si la scène en a une). */
+  shot?: Shot;
   words: number;
   /** Durée estimée à partir du nombre de mots (WORDS_PER_SECOND). */
   estimatedSeconds: number;
@@ -33,9 +51,10 @@ export function countWords(text: string): number {
 export const estimateSeconds = (words: number) => Math.round((words / WORDS_PER_SECOND) * 10) / 10;
 
 /** Construit une scène à partir du texte, en calculant mots et durée. */
-export function toScene(spokenText: string, visualIntent: string): Scene {
+export function toScene(spokenText: string, visualIntent: string, shot?: Shot): Scene {
   const words = countWords(spokenText);
-  return { spokenText, visualIntent, words, estimatedSeconds: estimateSeconds(words) };
+  // Champ absent plutôt qu'undefined : Firestore refuse undefined.
+  return { spokenText, visualIntent, ...(shot ? { shot } : {}), words, estimatedSeconds: estimateSeconds(words) };
 }
 
 export function totals(scenes: Scene[]) {
@@ -59,7 +78,7 @@ export const SCRIPT_LIMITS = { titleMax: 120, scenesMax: 12, spokenMax: 1200, vi
 /** Modification manuelle envoyée par l'éditeur : mots et durées sont recalculés par le serveur. */
 export interface ScriptEdit {
   title: string;
-  scenes: { spokenText: string; visualIntent: string }[];
+  scenes: { spokenText: string; visualIntent: string; shot?: Shot }[];
 }
 
 export type ScriptEditResult = { ok: true; value: ScriptEdit } | { ok: false; errors: Record<string, string> };
@@ -81,10 +100,14 @@ export function validateScriptEdit(raw: unknown): ScriptEditResult {
     const item = (typeof scene === "object" && scene ? scene : {}) as Record<string, unknown>;
     const spokenText = typeof item.spokenText === "string" ? item.spokenText.trim().replace(/\s+/g, " ") : "";
     const visualIntent = typeof item.visualIntent === "string" ? item.visualIntent.trim() : "";
+    // Plan absent ou vide = automatique.
+    const shot = isShot(item.shot) ? item.shot : undefined;
+    const unknownShot = !shot && item.shot != null && item.shot !== "";
     if (!spokenText) errors[`scene-${index}`] = "Le texte parlé est vide.";
     else if (spokenText.length > SCRIPT_LIMITS.spokenMax) errors[`scene-${index}`] = `Texte trop long (${SCRIPT_LIMITS.spokenMax} caractères au maximum).`;
-    else if (visualIntent.length > SCRIPT_LIMITS.visualMax) errors[`scene-${index}`] = `Intention visuelle trop longue (${SCRIPT_LIMITS.visualMax} caractères au maximum).`;
-    return { spokenText, visualIntent };
+    else if (visualIntent.length > SCRIPT_LIMITS.visualMax) errors[`scene-${index}`] = `Idée visuelle trop longue (${SCRIPT_LIMITS.visualMax} caractères au maximum).`;
+    else if (unknownShot) errors[`scene-${index}`] = "Plan inconnu : choisis-en un dans la liste.";
+    return { spokenText, visualIntent, ...(shot ? { shot } : {}) };
   });
 
   if (Object.keys(errors).length > 0) return { ok: false, errors };

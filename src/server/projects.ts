@@ -6,7 +6,7 @@ import { toScene, totals, type Script, type ScriptEdit } from "@/features/projec
 import { isValidRenderId, type ProjectRender } from "@/features/projects/render";
 import { EMPTY_OVERRIDE } from "@/features/projects/signature-override";
 import type { AvatarVideo } from "@/features/projects/video";
-import type { Voice } from "@/features/projects/voice";
+import { voiceText, type Voice } from "@/features/projects/voice";
 import { adminBucket, adminDb } from "./firebase-admin";
 import type { SessionUser } from "./session";
 
@@ -68,10 +68,13 @@ export async function getProject(uid: string, id: string): Promise<Project | nul
   return toProject(snapshot);
 }
 
-/** Enregistre le script et passe le projet en « Script prêt ». Le propriétaire doit avoir été vérifié par getProject. */
-export async function saveScript(id: string, script: Script): Promise<Project> {
+/**
+ * Enregistre le script et passe le projet en « Script prêt », sauf si keepStatus (texte parlé inchangé).
+ * Le propriétaire doit avoir été vérifié par getProject.
+ */
+export async function saveScript(id: string, script: Script, { keepStatus = false } = {}): Promise<Project> {
   const ref = projects().doc(id);
-  await ref.update({ script, status: "script_ready", updatedAt: FieldValue.serverTimestamp() });
+  await ref.update({ script, ...(keepStatus ? {} : { status: "script_ready" }), updatedAt: FieldValue.serverTimestamp() });
   return toProject(await ref.get());
 }
 
@@ -168,7 +171,8 @@ export async function deleteProject(uid: string, id: string): Promise<boolean> {
 
 /** Applique une modification manuelle au script existant ; mots et durées sont recalculés ici. */
 export async function updateScript(id: string, current: Script, edit: ScriptEdit): Promise<Project> {
-  const scenes = edit.scenes.map((scene) => toScene(scene.spokenText, scene.visualIntent));
+  const scenes = edit.scenes.map((scene) => toScene(scene.spokenText, scene.visualIntent, scene.shot));
   const script: Script = { ...current, title: edit.title, scenes, ...totals(scenes), editedAt: new Date().toISOString() };
-  return saveScript(id, script);
+  // Seul le texte parlé oblige à refaire la voix : changer un plan, une idée visuelle ou le titre ne fait pas reculer le projet.
+  return saveScript(id, script, { keepStatus: voiceText(script) === voiceText(current) });
 }

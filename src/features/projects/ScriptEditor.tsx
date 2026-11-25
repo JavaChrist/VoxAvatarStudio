@@ -5,21 +5,27 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, FileText, Gauge, LoaderCircle, Plus, RefreshCw, Save, Sparkles, Trash2 } from "lucide-react";
 import {
   SCRIPT_LIMITS,
+  SHOTS,
+  SHOT_LABELS,
   countWords,
   durationFit,
   estimateSeconds,
   validateScriptEdit,
   type Script,
+  type Shot,
 } from "@/features/projects/script";
 import { WORDS_PER_SECOND } from "@/features/projects/schema";
 import { buttonPrimary, buttonSecondary } from "@/ui/buttons";
 import { fieldErrorClass, inputClass, textareaClass } from "@/ui/fields";
 import { useModal } from "@/ui/modal/ModalProvider";
+import { Select } from "@/ui/Select";
 
 interface DraftScene {
   key: number;
   spokenText: string;
   visualIntent: string;
+  /** Vide = automatique. */
+  shot: Shot | "";
 }
 
 interface Draft {
@@ -51,7 +57,12 @@ const SAVE_ERRORS: Record<string, string> = {
 function toDraft(script: Script): Draft {
   return {
     title: script.title,
-    scenes: script.scenes.map((scene) => ({ key: nextKey(), spokenText: scene.spokenText, visualIntent: scene.visualIntent })),
+    scenes: script.scenes.map((scene) => ({
+      key: nextKey(),
+      spokenText: scene.spokenText,
+      visualIntent: scene.visualIntent,
+      shot: scene.shot ?? "",
+    })),
   };
 }
 
@@ -64,7 +75,8 @@ function sameAsSaved(draft: Draft, script: Script): boolean {
     draft.scenes.every(
       (scene, index) =>
         clean(scene.spokenText) === script.scenes[index]?.spokenText &&
-        scene.visualIntent.trim() === script.scenes[index]?.visualIntent,
+        scene.visualIntent.trim() === script.scenes[index]?.visualIntent &&
+        scene.shot === (script.scenes[index]?.shot ?? ""),
     )
   );
 }
@@ -251,7 +263,7 @@ export function ScriptEditor({ projectId, initialScript }: { projectId: string; 
   const addScene = () => {
     clearError("scenes");
     setDraft((current) =>
-      current ? { ...current, scenes: [...current.scenes, { key: nextKey(), spokenText: "", visualIntent: "" }] } : current,
+      current ? { ...current, scenes: [...current.scenes, { key: nextKey(), spokenText: "", visualIntent: "", shot: "" }] } : current,
     );
   };
 
@@ -419,19 +431,39 @@ export function ScriptEditor({ projectId, initialScript }: { projectId: string; 
                 aria-invalid={Boolean(error)}
                 className={textareaClass}
               />
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor={`${fieldId}-scene-${index}-visual`} className="text-xs text-quiet">
-                  Intention visuelle
-                </label>
-                <input
-                  id={`${fieldId}-scene-${index}-visual`}
-                  value={scene.visualIntent}
-                  onChange={(event) => updateScene(index, { visualIntent: event.target.value })}
-                  maxLength={SCRIPT_LIMITS.visualMax}
-                  disabled={disabled}
-                  placeholder="Illustration affichée au-dessus de Chris"
-                  className={inputClass}
-                />
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <div className="flex flex-col gap-1.5 sm:w-60 sm:shrink-0">
+                  <label htmlFor={`${fieldId}-scene-${index}-shot`} className="text-xs text-quiet">
+                    Plan
+                  </label>
+                  <Select
+                    id={`${fieldId}-scene-${index}-shot`}
+                    value={scene.shot}
+                    onChange={(event) => updateScene(index, { shot: event.target.value as Shot | "" })}
+                    disabled={disabled}
+                  >
+                    <option value="">Automatique</option>
+                    {SHOTS.map((shot) => (
+                      <option key={shot} value={shot}>
+                        {SHOT_LABELS[shot]}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <label htmlFor={`${fieldId}-scene-${index}-visual`} className="text-xs text-quiet">
+                    Idée visuelle
+                  </label>
+                  <input
+                    id={`${fieldId}-scene-${index}-visual`}
+                    value={scene.visualIntent}
+                    onChange={(event) => updateScene(index, { visualIntent: event.target.value })}
+                    maxLength={SCRIPT_LIMITS.visualMax}
+                    disabled={disabled}
+                    placeholder="Description de l'image de la scène"
+                    className={inputClass}
+                  />
+                </div>
               </div>
               {error && <p className={fieldErrorClass}>{error}</p>}
             </li>
@@ -463,6 +495,11 @@ export function ScriptEditor({ projectId, initialScript }: { projectId: string; 
           </button>
         </div>
       </div>
+
+      <p className="text-xs text-quiet">
+        Plan automatique : l&apos;image de la scène, si elle en a une, s&apos;affiche en carte au-dessus de Chris. Changer un plan ou une
+        idée visuelle ne refait ni la voix ni la vidéo de Chris : enregistre, puis relance le montage.
+      </p>
 
       <p className="text-xs text-quiet">
         {origin} · mots et durées recalculés par le serveur à{" "}

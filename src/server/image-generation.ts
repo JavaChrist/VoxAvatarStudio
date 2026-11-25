@@ -1,6 +1,7 @@
 import "server-only";
 import { ApiError } from "@fal-ai/client";
 import { detectInsertType, INSERT_MAX_BYTES, type InsertType } from "@/features/projects/inserts";
+import type { VideoFormat } from "@/features/projects/schema";
 import { falClient, IMAGE_ENDPOINT } from "./providers/fal";
 
 // Image d'une scène générée par Nano Banana chez fal (un appel facturé par image).
@@ -30,21 +31,32 @@ export const IMAGE_GENERATION_ERROR_STATUS: Record<ImageGenerationError["code"],
   provider_error: 502,
 };
 
+/** 4:3 pour la carte au-dessus de Chris ; un format de vidéo pour un gros plan sur l'image, qui remplit l'écran. */
+export type ImageRatio = "4:3" | VideoFormat;
+
+// En plein écran, le bas de l'image reste dégagé : les sous-titres passent dessus.
+const FRAMING: Record<ImageRatio, string> = {
+  "4:3": "One clear subject, readable at small size, filling a landscape frame.",
+  "9:16": "One clear subject, centered, filling a tall vertical frame. Keep the lower third calm and uncluttered.",
+  "4:5": "One clear subject, centered, filling a vertical frame. Keep the lower third calm and uncluttered.",
+  "1:1": "One clear subject, centered, filling a square frame. Keep the lower third calm and uncluttered.",
+};
+
 /** Style commun à toutes les images, assorti à Chris. La description, en français, vient de l'utilisateur. */
-const imagePrompt = (description: string) =>
+const imagePrompt = (description: string, ratio: ImageRatio) =>
   [
     "Stylized 3D cartoon illustration in the look of an animated film: soft lighting, rounded shapes, vivid colors.",
-    "One clear subject, readable at small size, filling a landscape frame.",
+    FRAMING[ratio],
     "No text, no letters, no numbers, no logo, no watermark. No presenter and nobody talking to the camera.",
     `Illustrate this description, written in French: ${description}`,
   ].join("\n");
 
-/** Génère une image 4:3 et la rapporte. Son format est reconnu à ses premiers octets, pas à ce que fal annonce. */
-export async function generateImage(description: string): Promise<{ bytes: Buffer; contentType: InsertType }> {
+/** Génère une image et la rapporte. Son type est reconnu à ses premiers octets, pas à ce que fal annonce. */
+export async function generateImage(description: string, ratio: ImageRatio): Promise<{ bytes: Buffer; contentType: InsertType }> {
   let url: string | undefined;
   try {
     const result = await falClient().subscribe(IMAGE_ENDPOINT, {
-      input: { prompt: imagePrompt(description), num_images: 1, aspect_ratio: "4:3", output_format: "png" },
+      input: { prompt: imagePrompt(description, ratio), num_images: 1, aspect_ratio: ratio, output_format: "png" },
       timeout: GENERATION_TIMEOUT_MS,
       startTimeout: START_TIMEOUT_SECONDS,
       headers: { "X-Fal-Object-Lifecycle-Preference": OUTPUT_LIFECYCLE },

@@ -1,7 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { DURATION_PRESETS, WORDS_PER_SECOND, toneLabel, type Project } from "@/features/projects/schema";
-import { DURATION_TOLERANCE, durationFit, toScene, totals, type Scene, type Script } from "@/features/projects/script";
+import { DURATION_TOLERANCE, SHOTS, durationFit, isShot, toScene, totals, type Scene, type Script, type Shot } from "@/features/projects/script";
 import { SCRIPT_MODEL, anthropic } from "./providers/anthropic";
 
 // Génération du script par Claude (API Messages, sorties structurées).
@@ -37,9 +37,10 @@ const SCRIPT_SCHEMA = {
         type: "object",
         properties: {
           spokenText: { type: "string", description: "Texte exact que Chris prononce face caméra." },
-          visualIntent: { type: "string", description: "Sujet de l'illustration affichée au-dessus de Chris pendant la scène." },
+          visualIntent: { type: "string", description: "Sujet de l'illustration de la scène." },
+          shot: { type: "string", enum: SHOTS, description: "Plan de la scène au montage." },
         },
-        required: ["spokenText", "visualIntent"],
+        required: ["spokenText", "visualIntent", "shot"],
         additionalProperties: false,
       },
     },
@@ -60,8 +61,17 @@ Règles du texte parlé (spokenText) :
 - Dernière scène : une conclusion nette ou un appel à l'action simple.
 - Écris les sigles comme ils se prononcent quand c'est ambigu.
 
+Règles du plan (shot), qui dit ce qu'on voit pendant la scène (la voix et les sous-titres continuent toujours) :
+- chris : Chris en cadrage normal.
+- chris_close : gros plan sur le visage de Chris, pour une accroche, une confidence ou un conseil à retenir.
+- chris_image : Chris avec l'illustration en carte au-dessus de lui, quand elle accompagne ce qu'il dit.
+- image_close : l'illustration en grand à la place de Chris, quand ce qu'elle montre compte plus que lui (exemple concret, objet, lieu).
+- Alterne les plans pour donner du rythme : jamais deux scènes de suite avec le même plan.
+- La première et la dernière scène montrent Chris (chris ou chris_close).
+- Au plus une scène sur trois en image_close.
+
 Règles de l'intention visuelle (visualIntent) :
-- Elle sert à créer une image fixe, affichée en carte au-dessus de Chris pendant la scène.
+- Écris-la pour chaque scène, quel que soit son plan : elle sert à créer l'image fixe de la scène.
 - Une phrase courte en français qui décrit uniquement cette illustration : un sujet concret (objet, lieu, personnes en situation), facile à lire en petit.
 - Ne parle ni de Chris, ni de cadrage ou de caméra, ni de texte, de chiffres ou de logo à l'écran, ni d'animation.
 
@@ -84,7 +94,7 @@ function userPrompt(project: Project, targetSeconds: number): string {
 }
 
 /** Lit et nettoie le JSON renvoyé ; lève script_invalid si la structure n'est pas exploitable. */
-function parseScript(text: string): { title: string; scenes: { spokenText: string; visualIntent: string }[] } {
+function parseScript(text: string): { title: string; scenes: { spokenText: string; visualIntent: string; shot?: Shot }[] } {
   let data: unknown;
   try {
     data = JSON.parse(text);
@@ -94,9 +104,10 @@ function parseScript(text: string): { title: string; scenes: { spokenText: strin
   const raw = data as { title?: unknown; scenes?: unknown };
   const title = typeof raw.title === "string" ? raw.title.trim() : "";
   const scenes = (Array.isArray(raw.scenes) ? raw.scenes : [])
-    .map((scene: { spokenText?: unknown; visualIntent?: unknown }) => ({
+    .map((scene: { spokenText?: unknown; visualIntent?: unknown; shot?: unknown }) => ({
       spokenText: typeof scene?.spokenText === "string" ? scene.spokenText.trim().replace(/\s+/g, " ") : "",
       visualIntent: typeof scene?.visualIntent === "string" ? scene.visualIntent.trim() : "",
+      shot: isShot(scene?.shot) ? scene.shot : undefined,
     }))
     .filter((scene) => scene.spokenText);
   if (!title || scenes.length === 0 || scenes.length > MAX_SCENES) {
@@ -156,7 +167,7 @@ async function requestScript(
   const parsed = parseScript(text);
   return {
     title: parsed.title,
-    scenes: parsed.scenes.map((scene) => toScene(scene.spokenText, scene.visualIntent)),
+    scenes: parsed.scenes.map((scene) => toScene(scene.spokenText, scene.visualIntent, scene.shot)),
     model: response.model,
   };
 }
@@ -190,14 +201,19 @@ function adjustPrompt(project: Project, script: Script): string {
   const direction = script.totalWords < targetWords ? "Allonge" : "Raccourcis";
   const current = {
     title: script.title,
-    scenes: script.scenes.map((scene) => ({ spokenText: scene.spokenText, visualIntent: scene.visualIntent, mots: scene.words })),
+    scenes: script.scenes.map((scene) => ({
+      spokenText: scene.spokenText,
+      visualIntent: scene.visualIntent,
+      shot: scene.shot,
+      mots: scene.words,
+    })),
   };
   return [
     `<sujet>${project.topic}</sujet>`,
     `<script_actuel>${JSON.stringify(current)}</script_actuel>`,
     `Le script actuel compte ${script.totalWords} mots ; il en faut entre ${minWords} et ${maxWords} (cible ${targetWords} mots, soit ${script.targetSeconds} secondes).`,
     `${direction} le texte parlé pour entrer dans cette fourchette, en restant au plus près de la cible.`,
-    "Garde le titre, l'ordre et le nombre de scènes, l'accroche, la conclusion, le ton et les intentions visuelles, sauf si un changement est nécessaire.",
+    "Garde le titre, l'ordre et le nombre de scènes, l'accroche, la conclusion, le ton, les intentions visuelles et les plans, sauf si un changement est nécessaire.",
     "Modifie le moins possible : ajuste les phrases plutôt que de tout réécrire.",
   ].join("\n");
 }
@@ -222,11 +238,16 @@ export async function adjustScript(project: Project, script: Script): Promise<{ 
       if (best !== script) break;
       throw error;
     }
+    // Même découpage : les plans en place sont gardés, ils ont pu être choisis à la main.
+    const scenes =
+      result.scenes.length === best.scenes.length
+        ? result.scenes.map((scene, index) => toScene(scene.spokenText, scene.visualIntent, best.scenes[index]?.shot))
+        : result.scenes;
     const candidate: Script = {
       ...best,
       title: result.title,
-      scenes: result.scenes,
-      ...totals(result.scenes),
+      scenes,
+      ...totals(scenes),
       model: result.model,
       adjustedAt: new Date().toISOString(),
     };
