@@ -2,7 +2,7 @@
 
 import { useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ImageIcon, ImagePlus, Images, LoaderCircle, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, ImageIcon, ImagePlus, Images, Info, LoaderCircle, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { SHOT_LABELS, shotNeedsImage, type Script } from "@/features/projects/script";
 import { isVoiceStale, type Voice } from "@/features/projects/voice";
 import { buttonSecondary } from "@/ui/buttons";
@@ -211,6 +211,8 @@ export function InsertsPanel({ projectId, script, voice, initialInserts }: Props
         {script.scenes.map((scene, index) => {
           const insert = byScene.get(index);
           const timing = timings?.[index];
+          // Plan choisi qui montre Chris seul : aucune image à poser sur cette scène.
+          const withoutImage = Boolean(scene.shot) && !shotNeedsImage(scene.shot);
           return (
             <li key={index} className="flex flex-col gap-3 rounded-lg border border-line p-3 sm:flex-row sm:items-center">
               {thumbnail(insert, index)}
@@ -238,13 +240,21 @@ export function InsertsPanel({ projectId, script, voice, initialInserts }: Props
                   </p>
                 )}
                 {!insert && inserts !== null && shotNeedsImage(scene.shot) && (
-                  <p className="mt-1 flex items-start gap-1.5 text-xs text-danger">
-                    <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
-                    Aucune image : Chris restera en cadrage normal.
+                  <p className="mt-1 flex items-start gap-1.5 text-xs text-accent-soft">
+                    <ImagePlus className="mt-px size-3.5 shrink-0" aria-hidden />
+                    Image à ajouter : génère-la ou choisis un fichier. Sans elle, Chris reste en cadrage normal.
                   </p>
                 )}
-                {insert && scene.shot && !shotNeedsImage(scene.shot) && (
-                  <p className="mt-1 text-xs text-quiet">Ce plan ne montre pas l&apos;image.</p>
+                {withoutImage && scene.shot && (
+                  <p className="mt-1 flex items-start gap-1.5 text-xs text-muted">
+                    <Info className="mt-px size-3.5 shrink-0" aria-hidden />
+                    <span>
+                      {SHOT_LABELS[scene.shot]} : pas d&apos;image sur ce plan.{" "}
+                      {insert
+                        ? "Celle déjà posée ne sera pas montrée. Pour l'afficher, change le plan dans le script, puis enregistre."
+                        : "Pour en ajouter une, change le plan dans le script, puis enregistre."}
+                    </span>
+                  </p>
                 )}
                 {generating && busyScene === index && (
                   <p className="mt-1 text-xs text-accent-soft" aria-live="polite">
@@ -255,26 +265,30 @@ export function InsertsPanel({ projectId, script, voice, initialInserts }: Props
               <div className="flex flex-wrap gap-2">
                 {insert ? (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => generate(index, scene.visualIntent)}
-                      disabled={locked || inserts === null}
-                      className={iconButton}
-                      aria-label={`Générer une nouvelle image pour la scène ${index + 1}`}
-                      title="Générer une nouvelle image"
-                    >
-                      <Sparkles className="size-4" aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => pick(index)}
-                      disabled={locked || inserts === null}
-                      className={iconButton}
-                      aria-label={`Remplacer l'image de la scène ${index + 1}`}
-                      title="Remplacer"
-                    >
-                      <RefreshCw className="size-4" aria-hidden />
-                    </button>
+                    {!withoutImage && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => generate(index, scene.visualIntent)}
+                          disabled={locked || inserts === null}
+                          className={iconButton}
+                          aria-label={`Générer une nouvelle image pour la scène ${index + 1}`}
+                          title="Générer une nouvelle image"
+                        >
+                          <Sparkles className="size-4" aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => pick(index)}
+                          disabled={locked || inserts === null}
+                          className={iconButton}
+                          aria-label={`Remplacer l'image de la scène ${index + 1}`}
+                          title="Remplacer"
+                        >
+                          <RefreshCw className="size-4" aria-hidden />
+                        </button>
+                      </>
+                    )}
                     <button
                       type="button"
                       onClick={() => remove(insert)}
@@ -287,21 +301,23 @@ export function InsertsPanel({ projectId, script, voice, initialInserts }: Props
                     </button>
                   </>
                 ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => generate(index, scene.visualIntent)}
-                      disabled={locked || inserts === null}
-                      className={buttonSecondary}
-                    >
-                      <Sparkles className="size-4" aria-hidden />
-                      Générer l&apos;image
-                    </button>
-                    <button type="button" onClick={() => pick(index)} disabled={locked || inserts === null} className={buttonSecondary}>
-                      <ImagePlus className="size-4" aria-hidden />
-                      Ajouter
-                    </button>
-                  </>
+                  !withoutImage && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => generate(index, scene.visualIntent)}
+                        disabled={locked || inserts === null}
+                        className={buttonSecondary}
+                      >
+                        <Sparkles className="size-4" aria-hidden />
+                        Générer l&apos;image
+                      </button>
+                      <button type="button" onClick={() => pick(index)} disabled={locked || inserts === null} className={buttonSecondary}>
+                        <ImagePlus className="size-4" aria-hidden />
+                        Ajouter
+                      </button>
+                    </>
+                  )
                 )}
               </div>
             </li>
