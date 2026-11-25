@@ -137,7 +137,7 @@ export function VideoPanel({ projectId, formats, script, voice, appearance, init
       body: [
         `Kling AI Avatar v2 Pro (fal.ai) anime Chris sur fond vert avec la voix de ${formatSeconds(voice.durationSeconds)}.`,
         `Coût estimé : environ ${cost} (0,115 $ par seconde de vidéo, fin silencieuse comprise), un appel facturé sur ton compte fal.`,
-        `Durée estimée : environ ${minutes} min. Tu peux quitter la page, le suivi reprendra à ton retour.`,
+        `Durée estimée : environ ${minutes} min. Tu peux quitter la page ou fermer l'application : la vidéo est récupérée automatiquement dès qu'elle est prête.`,
         current?.state === "done" ? "La vidéo actuelle de ce format sera remplacée." : "",
       ]
         .filter(Boolean)
@@ -303,7 +303,15 @@ function RowStatus({ video, voice, stalled, stale }: { video: AvatarVideo | unde
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-danger" aria-live="polite">
         <AlertTriangle className="size-3.5" aria-hidden />
-        Génération bloquée depuis le {formatDate(video.submittedAt)} : relance-la.
+        Toujours pas de vidéo (lancée le {formatDate(video.submittedAt)}) : recharge la page pour revérifier chez fal avant de relancer.
+      </span>
+    );
+  }
+  if (isAvatarPending(video) && video.falOutput) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-accent-soft" aria-live="polite">
+        <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+        Vidéo générée chez fal, récupération en cours
       </span>
     );
   }

@@ -1,7 +1,7 @@
 import "server-only";
 import { FieldPath, FieldValue, Timestamp, type DocumentSnapshot } from "firebase-admin/firestore";
 import { DEFAULT_APPEARANCE, readAppearance, type Appearance } from "@/features/projects/appearance";
-import type { Project, ProjectInput } from "@/features/projects/schema";
+import { VIDEO_FORMATS, type Project, type ProjectInput } from "@/features/projects/schema";
 import { toScene, totals, type Script, type ScriptEdit } from "@/features/projects/script";
 import { isValidRenderId, type ProjectRender } from "@/features/projects/render";
 import { EMPTY_OVERRIDE } from "@/features/projects/signature-override";
@@ -92,16 +92,46 @@ export async function saveAppearance(id: string, appearance: Appearance): Promis
   return toProject(await ref.get());
 }
 
+// FieldPath : le format contient « : », qu'on ne met pas dans un chemin pointé.
+const avatarField = (format: string) => new FieldPath("avatars", format);
+
 /**
- * Enregistre l'état de la vidéo d'un format, sans toucher aux autres formats. Le projet passe en « Vidéo prête »
- * dès qu'une vidéo est terminée. Le propriétaire doit avoir été vérifié par getProject.
+ * Enregistre un travail qui vient d'être lancé, à la place de la vidéo précédente du format, sans toucher aux autres
+ * formats. Le propriétaire doit avoir été vérifié par getProject.
  */
 export async function saveAvatar(id: string, video: AvatarVideo): Promise<Project> {
   const ref = projects().doc(id);
-  // FieldPath : le format contient « : », qu'on ne met pas dans un chemin pointé.
-  const extra: unknown[] = video.state === "done" ? ["status", "video_ready"] : [];
-  await ref.update(new FieldPath("avatars", video.format), video, "updatedAt", FieldValue.serverTimestamp(), ...extra);
+  await ref.update(avatarField(video.format), video, "updatedAt", FieldValue.serverTimestamp());
   return toProject(await ref.get());
+}
+
+/** Vidéo d'un format, lue sans utilisateur connecté : réservé au webhook fal, une fois sa signature vérifiée. */
+export async function getAvatar(id: string, format: string): Promise<AvatarVideo | null> {
+  if (!isValidId(id) || !(VIDEO_FORMATS as readonly string[]).includes(format)) return null;
+  const snapshot = await projects().doc(id).get();
+  return (snapshot.get(avatarField(format)) as AvatarVideo | undefined) ?? null;
+}
+
+/**
+ * Enregistre l'avancement d'un travail. Le webhook et le suivi de la page peuvent écrire en même temps : la
+ * transaction n'écrit que si le format suit toujours le même travail et n'est pas déjà terminé, et ne laisse pas un
+ * état plus ancien effacer la vidéo annoncée par fal. Le projet passe en « Vidéo prête » dès qu'une vidéo est
+ * terminée. Renvoie la vidéo enregistrée, ou null si rien n'a été écrit.
+ */
+export async function updateAvatar(id: string, video: AvatarVideo): Promise<AvatarVideo | null> {
+  const ref = projects().doc(id);
+  const field = avatarField(video.format);
+  return adminDb().runTransaction(async (transaction) => {
+    const current = (await transaction.get(ref)).get(field) as AvatarVideo | undefined;
+    if (!current || current.requestId !== video.requestId || current.state === "done") return null;
+    // État calculé sans connaître la vidéo produite.
+    const blind = video.state !== "done" && !video.falOutput;
+    if (blind && (current.state === "failed" || (video.state === "failed" && current.falOutput))) return null;
+    const next = blind && current.falOutput ? { ...video, falOutput: current.falOutput } : video;
+    const extra: unknown[] = next.state === "done" ? ["status", "video_ready"] : [];
+    transaction.update(ref, field, next, "updatedAt", FieldValue.serverTimestamp(), ...extra);
+    return next;
+  });
 }
 
 /**

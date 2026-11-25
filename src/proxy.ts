@@ -12,6 +12,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Restent publics : la connexion, la session et les fichiers statiques (icônes, manifest, sw.js, version.json).
-  matcher: ["/((?!connexion|api/session|_next/|.*\\.[a-z0-9]+$).*)"],
+  // Restent publics : la connexion, la session, les fichiers statiques (icônes, manifest, sw.js, version.json) et les
+  // webhooks, appelés sans cookie par un service qui signe ses appels (vérifiés dans la route).
+  matcher: ["/((?!connexion|api/session|api/webhooks/|_next/|.*\\.[a-z0-9]+$).*)"],
 };

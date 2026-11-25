@@ -3,7 +3,7 @@ import type { AvatarVideos } from "@/features/projects/video";
 import { isVoiceStale } from "@/features/projects/voice";
 import { hasEnv } from "@/server/env";
 import { errorCode } from "@/server/firebase-admin";
-import { getProject, saveAvatar } from "@/server/projects";
+import { getProject, saveAvatar, updateAvatar } from "@/server/projects";
 import { isVoiceBusy, withVideoLock } from "@/server/script-lock";
 import { getSessionUser } from "@/server/session";
 import { AVATAR_ERROR_STATUS, AvatarGenerationError, avatarUrl, refreshAvatar, startAvatar } from "@/server/video";
@@ -88,10 +88,15 @@ export async function GET(_request: Request, { params }: Context) {
     if (hasEnv("FAL_KEY")) {
       // Si un autre suivi tourne déjà sur ce projet, on renvoie simplement l'état enregistré.
       await withVideoLock(id, async () => {
+        let changed = false;
         for (const video of Object.values(project.avatars)) {
           const updated = await refreshAvatar(id, video);
-          if (updated) project = await saveAvatar(id, updated);
+          if (!updated) continue;
+          await updateAvatar(id, updated);
+          changed = true;
         }
+        // Relu : le webhook de fal a pu écrire pendant ce suivi.
+        if (changed) project = (await getProject(user.uid, id)) ?? project;
       });
     }
     return Response.json(

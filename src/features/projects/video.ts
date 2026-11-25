@@ -14,13 +14,23 @@ export const AVATAR_BILLED_TAIL_SECONDS = 1.6;
 export const AVATAR_GENERATION_SECONDS_PER_SECOND = 40;
 
 /**
- * Au-delà, un travail resté « en cours » est considéré comme bloqué : fal ne garde le résultat qu'environ 1 h
- * après la fin, donc il ne sera plus récupérable. Le projet peut alors être relancé ou supprimé.
+ * Au-delà, un travail dont fal n'a annoncé aucune vidéo est considéré comme bloqué : le serveur interroge fal une
+ * dernière fois avant de le déclarer en échec. Le projet peut alors être relancé ou supprimé.
  */
 export const AVATAR_STALL_AFTER_MS = 3 * 60 * 60 * 1000;
 
+/** Durée pendant laquelle fal garde le fichier produit : tant qu'elle court, la copie vers Storage peut être retentée. */
+export const AVATAR_OUTPUT_KEPT_MS = 24 * 60 * 60 * 1000;
+
 /** queued et running : travail chez fal ; done : MP4 copié dans Storage ; failed : erreur renvoyée par fal ou par la copie. */
 export type AvatarState = "queued" | "running" | "done" | "failed";
+
+/** Vidéo annoncée par fal, pas encore copiée dans Storage. */
+export interface FalOutput {
+  url: string;
+  durationSeconds: number | null;
+  receivedAt: string;
+}
 
 /** Métadonnées enregistrées sur le projet. Le MP4 reste privé dans Storage. */
 export interface AvatarVideo {
@@ -45,6 +55,8 @@ export interface AvatarVideo {
   /** Tenue et pose de Chris utilisées ; absentes sur les vidéos d'avant les tenues (T-shirt gris, debout). */
   outfit?: string;
   pose?: Pose;
+  /** Présente seulement entre l'annonce de fal et la fin de la copie. */
+  falOutput?: FalOutput;
 }
 
 /** Une entrée par format déjà lancé. */
@@ -60,9 +72,15 @@ export const estimateAvatarMinutes = (voiceSeconds: number) =>
 
 export const isAvatarPending = (video: AvatarVideo) => video.state === "queued" || video.state === "running";
 
-/** Vrai si un travail en cours dépasse le délai au-delà duquel son résultat n'est plus récupérable. */
-export const isAvatarStalled = (video: AvatarVideo, now = Date.now()) =>
-  isAvatarPending(video) && now - Date.parse(video.submittedAt) > AVATAR_STALL_AFTER_MS;
+/**
+ * Vrai si un travail en cours a dépassé son délai : 3 h après le lancement tant que fal n'a rien annoncé,
+ * puis 24 h après l'annonce de la vidéo, quand fal supprime le fichier.
+ */
+export function isAvatarStalled(video: AvatarVideo, now = Date.now()) {
+  if (!isAvatarPending(video)) return false;
+  if (video.falOutput) return now - Date.parse(video.falOutput.receivedAt) > AVATAR_OUTPUT_KEPT_MS;
+  return now - Date.parse(video.submittedAt) > AVATAR_STALL_AFTER_MS;
+}
 
 /** Tenue et pose avec lesquelles la vidéo a été générée. */
 export const avatarAppearance = (video: AvatarVideo): Appearance =>

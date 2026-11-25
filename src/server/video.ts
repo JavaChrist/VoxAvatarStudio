@@ -6,18 +6,22 @@ import { ApiError } from "@fal-ai/client";
 import { outfitPose, type Appearance } from "@/features/projects/appearance";
 import type { Project, VideoFormat } from "@/features/projects/schema";
 import {
+  AVATAR_OUTPUT_KEPT_MS,
   avatarCostUsd,
   avatarStoragePath,
   estimateAvatarCostUsd,
   isAvatarPending,
   isAvatarStalled,
   type AvatarVideo,
+  type FalOutput,
 } from "@/features/projects/video";
 import { adminBucket } from "./firebase-admin";
 import { AVATAR_ENDPOINT, falClient } from "./providers/fal";
 
 // Vidéo de Chris qui parle : Kling AI Avatar v2 Pro via la file d'attente fal (image + voix → MP4 sur fond vert).
 // Doc vérifiée le 2026-11-23 : fal.ai/models/fal-ai/kling-video/ai-avatar/v2/pro/api et fal.ai/docs/model-apis/model-endpoints/queue
+// La vidéo revient de deux façons : fal appelle l'application quand elle est prête (/api/webhooks/fal), et la page du
+// projet interroge fal tant qu'elle est ouverte. La seconde rattrape la première.
 
 /** Validité des liens signés envoyés à fal pour lire l'image et la voix. */
 const INPUT_URL_TTL_SECONDS = 2 * 60 * 60;
@@ -26,7 +30,7 @@ const INPUT_URL_TTL_SECONDS = 2 * 60 * 60;
 const START_TIMEOUT_SECONDS = 100 * 60;
 
 /** fal supprime la vidéo produite après 24 h ; on la copie dans Storage dès qu'elle est prête. */
-const OUTPUT_LIFECYCLE = JSON.stringify({ expiration_duration_seconds: 24 * 60 * 60 });
+const OUTPUT_LIFECYCLE = JSON.stringify({ expiration_duration_seconds: AVATAR_OUTPUT_KEPT_MS / 1000 });
 
 /** Garde-fou de taille au téléchargement : le spike donnait environ 1 Mo par seconde, 90 s font donc environ 90 Mo. */
 const MAX_VIDEO_BYTES = 400 * 1024 * 1024;
@@ -74,6 +78,15 @@ export async function signedReadUrl(path: string, ttlSeconds: number, responseTy
 }
 
 /**
+ * Adresse que fal appelle quand la vidéo est prête, sur le domaine de production (variable fournie par Vercel).
+ * Absente en local : seul le suivi de la page récupère alors la vidéo.
+ */
+function webhookUrl(projectId: string, format: VideoFormat): string | undefined {
+  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  return host ? `https://${host}/api/webhooks/fal?${new URLSearchParams({ project: projectId, format })}` : undefined;
+}
+
+/**
  * Lance la génération d'un format chez fal (un appel facturé, environ 0,115 $ par seconde de vidéo).
  * Ne fait qu'inscrire le travail dans la file : le résultat se récupère ensuite avec refreshAvatar.
  * Le propriétaire du projet doit avoir été vérifié par getProject ; l'appelant enregistre le résultat avec saveAvatar.
@@ -104,6 +117,7 @@ export async function startAvatar(project: Project, format: VideoFormat): Promis
       input: { image_url: image.url, audio_url: audio.url },
       startTimeout: START_TIMEOUT_SECONDS,
       headers: { "X-Fal-Object-Lifecycle-Preference": OUTPUT_LIFECYCLE },
+      webhookUrl: webhookUrl(project.id, format),
     });
     requestId = queued.request_id;
   } catch (error) {
@@ -151,12 +165,28 @@ function isFalMediaUrl(value: unknown): value is string {
   }
 }
 
+/** Refus du CDN de fal au téléchargement. */
+class DownloadError extends Error {
+  constructor(readonly status: number) {
+    super(`téléchargement ${status}`);
+  }
+}
+
+/** Vidéo exploitable dans une réponse du modèle (file d'attente ou webhook), sinon null. */
+function readOutput(data: unknown): FalOutput | null {
+  const { video, duration } = (data ?? {}) as { video?: { url?: unknown } | null; duration?: unknown };
+  const url = video?.url;
+  if (!isFalMediaUrl(url)) return null;
+  const durationSeconds = typeof duration === "number" && duration > 0 ? Math.round(duration * 1000) / 1000 : null;
+  return { url, durationSeconds, receivedAt: new Date().toISOString() };
+}
+
 /** Copie le MP4 de fal vers Storage en flux (pas tout en mémoire), en privé, avec une limite de taille. */
 async function copyToStorage(sourceUrl: string, storagePath: string): Promise<number> {
   const response = await fetch(sourceUrl, { signal: AbortSignal.timeout(240_000) });
   if (!response.ok || !response.body) {
     await response.body?.cancel();
-    throw new Error(`téléchargement ${response.status}`);
+    throw new DownloadError(response.status);
   }
   const declared = Number(response.headers.get("content-length") ?? 0);
   if (declared > MAX_VIDEO_BYTES) {
@@ -183,12 +213,39 @@ async function copyToStorage(sourceUrl: string, storagePath: string): Promise<nu
 }
 
 /**
+ * Copie dans Storage la vidéo annoncée par fal. Si la copie échoue, l'adresse reste enregistrée avec le travail
+ * pour un nouvel essai ; renvoie null quand il n'y a rien de nouveau à enregistrer.
+ */
+async function collectAvatar(projectId: string, video: AvatarVideo, output: FalOutput): Promise<AvatarVideo | null> {
+  const waiting: AvatarVideo = { ...video, state: "running", falOutput: output };
+  const storagePath = avatarStoragePath(projectId, video.format);
+  try {
+    const bytes = await copyToStorage(output.url, storagePath);
+    const { durationSeconds } = output;
+    const costUsd = durationSeconds === null ? null : Math.round(avatarCostUsd(durationSeconds) * 1000) / 1000;
+    console.info("[video] usage", { format: video.format, requestId: video.requestId, seconds: durationSeconds, costUsd, bytes });
+    const done: AvatarVideo = { ...video, state: "done", storagePath, durationSeconds, costUsd, error: null, completedAt: new Date().toISOString() };
+    delete done.falOutput;
+    return done;
+  } catch (error) {
+    console.warn("[video] copy failed", error instanceof Error ? error.message : "inconnu");
+    const gone = error instanceof DownloadError && [403, 404, 410].includes(error.status);
+    if (gone || isAvatarStalled(waiting)) return failed(waiting, "La vidéo n'a pas pu être récupérée chez fal.");
+    // La vidéo reste chez fal 24 h : on réessaiera la copie au prochain suivi.
+    return video.falOutput ? null : waiting;
+  }
+}
+
+/**
  * Met à jour un format en cours à partir de la file fal (gratuit) et, quand c'est fini, copie la vidéo dans Storage.
- * Renvoie null si rien n'a changé. Le propriétaire du projet doit avoir été vérifié par getProject.
+ * Renvoie null si rien n'a changé. L'appelant vérifie le droit d'accès (propriétaire, ou appel signé par fal)
+ * et enregistre le résultat avec updateAvatar.
  */
 export async function refreshAvatar(projectId: string, video: AvatarVideo): Promise<AvatarVideo | null> {
   if (!isAvatarPending(video)) return null;
-  if (isAvatarStalled(video)) return failed(video, "La génération n'a pas abouti dans le délai prévu.");
+  if (video.falOutput) return collectAvatar(projectId, video, video.falOutput);
+  // Passé le délai, on interroge encore fal avant de déclarer l'échec : la vidéo peut y attendre.
+  const overdue = isAvatarStalled(video);
 
   const fal = falClient();
   let status;
@@ -201,13 +258,15 @@ export async function refreshAvatar(projectId: string, video: AvatarVideo): Prom
     return null;
   }
 
-  if (status.status === "IN_QUEUE") return null;
-  if (status.status === "IN_PROGRESS") return video.state === "running" ? null : { ...video, state: "running" };
+  if (status.status === "IN_QUEUE" || status.status === "IN_PROGRESS") {
+    if (overdue) return failed(video, "La génération n'a pas abouti dans le délai prévu.");
+    return status.status === "IN_QUEUE" || video.state === "running" ? null : { ...video, state: "running" };
+  }
 
-  let output: { video?: { url?: unknown }; duration?: unknown };
+  let data: unknown;
   try {
     const result = await fal.queue.result(AVATAR_ENDPOINT, { requestId: video.requestId, abortSignal: AbortSignal.timeout(30_000) });
-    output = result.data;
+    data = result.data;
   } catch (error) {
     if (error instanceof ApiError) {
       console.warn("[video] generation failed", { requestId: video.requestId, status: error.status });
@@ -218,19 +277,35 @@ export async function refreshAvatar(projectId: string, video: AvatarVideo): Prom
     return null;
   }
 
-  if (!isFalMediaUrl(output.video?.url)) return failed(video, "fal n'a pas renvoyé de vidéo exploitable.");
-  const durationSeconds = typeof output.duration === "number" && output.duration > 0 ? Math.round(output.duration * 1000) / 1000 : null;
-  const storagePath = avatarStoragePath(projectId, video.format);
-  try {
-    const bytes = await copyToStorage(output.video.url, storagePath);
-    const costUsd = durationSeconds === null ? null : Math.round(avatarCostUsd(durationSeconds) * 1000) / 1000;
-    console.info("[video] usage", { format: video.format, requestId: video.requestId, seconds: durationSeconds, costUsd, bytes });
-    return { ...video, state: "done", storagePath, durationSeconds, costUsd, error: null, completedAt: new Date().toISOString() };
-  } catch (error) {
-    // La vidéo reste chez fal 24 h : on réessaiera la copie au prochain suivi.
-    console.warn("[video] copy failed", error instanceof Error ? error.message : "inconnu");
-    return null;
+  const output = readOutput(data);
+  if (!output) return failed(video, "fal n'a pas renvoyé de vidéo exploitable.");
+  return collectAvatar(projectId, video, output);
+}
+
+/** Corps d'un appel de fal à la fin d'un travail. */
+export interface FalCall {
+  request_id?: unknown;
+  gateway_request_id?: unknown;
+  status?: unknown;
+  payload?: unknown;
+}
+
+/**
+ * Ce que l'appel de fal change à la vidéo suivie. Renvoie null pour un appel à ignorer : autre travail, vidéo déjà
+ * récupérée, échec répété. Une annonce de réussite reprend aussi un travail déclaré en échec faute de nouvelles.
+ * Sans vidéo lisible dans l'appel, la vidéo est renvoyée telle quelle : refreshAvatar la demandera à fal.
+ */
+export function applyFalCall(video: AvatarVideo, call: FalCall): AvatarVideo | null {
+  if (call.request_id !== video.requestId && call.gateway_request_id !== video.requestId) return null;
+  if (video.state === "done") return null;
+  if (call.status === "ERROR") {
+    // Le détail de l'erreur fal peut citer les URL signées : on ne le garde pas.
+    return isAvatarPending(video) && !video.falOutput ? failed(video, "fal n'a pas pu générer la vidéo.") : null;
   }
+  if (call.status !== "OK") return null;
+  const output = readOutput(call.payload);
+  if (!output) return isAvatarPending(video) ? video : null;
+  return { ...video, state: "running", error: null, completedAt: null, falOutput: output };
 }
 
 /** Lien de lecture temporaire du MP4 (URL signée V4, gratuite). Le propriétaire doit avoir été vérifié par getProject. */
