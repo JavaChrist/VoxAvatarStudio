@@ -112,7 +112,7 @@ export default async function ProjectPage({ params }: Props) {
   ];
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div data-scroll-sections className="mx-auto max-w-3xl">
       <Link href="/" className="inline-flex items-center gap-2 text-sm text-muted transition-colors duration-150 hover:text-ink">
         <ArrowLeft className="size-4" aria-hidden />
         Projets

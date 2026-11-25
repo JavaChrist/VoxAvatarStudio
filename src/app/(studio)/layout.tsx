@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Images, Music, Signature } from "lucide-react";
 import { getSessionUser } from "@/server/session";
 import { LogoutButton } from "@/features/auth/LogoutButton";
+import { ScrollButtons } from "@/ui/ScrollButtons";
 
 export default async function StudioLayout({ children }: { children: ReactNode }) {
   const user = await getSessionUser();
@@ -12,7 +13,7 @@ export default async function StudioLayout({ children }: { children: ReactNode }
 
   return (
     <div className="min-h-dvh">
-      <header className="sticky top-0 z-10 border-b border-line bg-black pt-[env(safe-area-inset-top)]">
+      <header data-app-header className="sticky top-0 z-10 border-b border-line bg-black pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-3 text-sm font-medium">
             <Image src="/logo192.png" alt="" width={28} height={28} className="rounded-md" />
@@ -45,7 +46,9 @@ export default async function StudioLayout({ children }: { children: ReactNode }
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6">{children}</main>
+      {/* La marge du bas laisse la place aux flèches, sans recouvrir la fin de la page. */}
+      <main className="mx-auto max-w-6xl px-4 pt-10 pb-[calc(8rem+env(safe-area-inset-bottom))] sm:px-6">{children}</main>
+      <ScrollButtons />
     </div>
   );
 }
