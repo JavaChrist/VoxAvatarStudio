@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { apiTokenUser, bearerToken } from "./api-token";
 import { allowedEmails } from "./env";
 import { adminAuth } from "./firebase-admin";
 
@@ -40,11 +41,15 @@ export async function clearSession(): Promise<void> {
 
 /**
  * Utilisateur connecté, ou null. Vérifie la signature, la révocation et la liste blanche.
+ * Sans cookie, accepte le jeton d'accès machine (Authorization: Bearer, voir api-token.ts).
  * Mis en cache pour la durée d'une requête : le layout et la page ne vérifient qu'une fois.
  */
 export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const value = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!value) return null;
+  if (!value) {
+    const token = bearerToken((await headers()).get("authorization"));
+    return token ? apiTokenUser(token) : null;
+  }
   try {
     const decoded = await adminAuth().verifySessionCookie(value, true);
     const email = decoded.email?.toLowerCase();
